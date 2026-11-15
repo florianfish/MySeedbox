@@ -1,0 +1,24 @@
+# CLAUDE.md
+
+## Project
+
+MySeedbox: Android app (Kotlin, Jetpack Compose, Material 3) to monitor and control a seedbox.fr seedbox: qBittorrent, Radarr, Sonarr, Prowlarr. Requests are handled by Jellyseerr, so the app does not duplicate search/add. UI strings and code comments are in French — keep it that way.
+
+## Build
+
+- No Gradle wrapper: system `gradle` 9.9.1, JDK 17, compileSdk 37 / targetSdk 34 / minSdk 26. AGP 9 built-in Kotlin: `org.jetbrains.kotlin.android` is only declared `apply false` in the root build, never applied in `:app`.
+- CI: thin callers of the reusable workflows in the public repo `florianfish/Forge-Apk` (`android-build.yml`, `android-release.yml`, `@main`, `gradle-version: 9.9.1`, `apk-name: MySeedbox`). Change CI behaviour there. Debug APK fixed link: `releases/download/debug/MySeedbox-debug.apk`.
+- No tests, no lint config.
+
+## Architecture
+
+Single module `:app`, package `fr.florian.seedbox`. No networking library: `HttpURLConnection` + `org.json`, blocking calls run on `Dispatchers.IO`.
+
+- `Http.kt` — `Http.request` / `Http.check` (non-2xx → `HttpException` with a French message), `Throwable.friendly()` for user-facing errors, `String.asBaseUrl()` (adds `https://`, trims `/`).
+- `Settings.kt` — `Service` enum, `ServiceConfig(url, user, secret)` (secret = API key, or qBittorrent password). URLs in plain SharedPreferences, secrets AES-GCM encrypted with an Android Keystore key (`allowBackup=false` because the key doesn't survive a restore). Never hard-code addresses or keys.
+- `QBittorrent.kt` — WebUI API v2. Cookie login (all `name=value` pairs of Set-Cookie are kept, since the cookie name varies between versions), cached per server+user in a companion map; re-login on 401/403. `Referer`/`Origin` headers are mandatory (CSRF). Pause/resume try qBittorrent 5's `stop`/`start` first, then fall back to `pause`/`resume` on 404.
+- `Arr.kt` — Radarr/Sonarr API v3 and Prowlarr API v1 with `X-Api-Key`: system status, health, disk space, queue, calendar, indexers + indexer status.
+- `Ui.kt` — `Loader` / `rememberLoader` (load on IO, optional periodic refresh only while RESUMED), `LoadedList` (pull-to-refresh + spinner + error card), formatting helpers (`bytes`, `speed`, `duration`), custom icons (`AppIcons`) for those missing from material-icons-core.
+- `Screens.kt` — tabs: Torrents, Imports (Radarr+Sonarr queues merged), Calendrier (30 days), État. Multi-service screens use `gather`, so one failing service shows an error card without hiding the others.
+- `SettingsScreen.kt` — one form per service with « Tester » (calls the version endpoint) and « Enregistrer ».
+- `MainActivity.kt` — theme (Material You on Android 12+), top bar with version, bottom navigation; settings open automatically when nothing is configured.
