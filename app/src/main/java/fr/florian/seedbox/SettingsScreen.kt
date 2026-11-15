@@ -55,6 +55,10 @@ private fun ServiceForm(service: Service, saved: ServiceConfig, onSave: (Service
                 Modifier.fillMaxWidth(),
                 label = { Text("Adresse") },
                 placeholder = { Text("https://cluster1k.seedbox.fr:port") },
+                isError = url.trim().startsWith("http://", ignoreCase = true),
+                supportingText = if (url.trim().startsWith("http://", ignoreCase = true)) {
+                    { Text("HTTP non chiffré : clé et mot de passe passeraient en clair. Utiliser https://") }
+                } else null,
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
             )

@@ -45,14 +45,20 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+/**
+ * Seuls les fichiers content:// sont acceptés : une autre appli pourrait sinon faire lire à celle-ci
+ * un de ses fichiers privés (file:///data/data/…) et l'envoyer à qBittorrent.
+ */
+private fun Uri.asTorrentFile(): Incoming? = if (scheme == "content") Incoming(fileUri = this) else null
+
 private fun Intent.toIncoming(): Incoming? = when (action) {
-    Intent.ACTION_VIEW -> data?.let { if (it.scheme == "magnet") Incoming(link = it.toString()) else Incoming(fileUri = it) }
+    Intent.ACTION_VIEW -> data?.let { if (it.scheme == "magnet") Incoming(link = it.toString()) else it.asTorrentFile() }
     Intent.ACTION_SEND -> {
         val text = getStringExtra(Intent.EXTRA_TEXT).orEmpty()
         val link = Regex("""magnet:\?\S+""").find(text)?.value
             ?: text.trim().takeIf { it.startsWith("http://") || it.startsWith("https://") }
         link?.let { Incoming(link = it) }
-            ?: IntentCompat.getParcelableExtra(this, Intent.EXTRA_STREAM, Uri::class.java)?.let { Incoming(fileUri = it) }
+            ?: IntentCompat.getParcelableExtra(this, Intent.EXTRA_STREAM, Uri::class.java)?.asTorrentFile()
     }
     else -> null
 }

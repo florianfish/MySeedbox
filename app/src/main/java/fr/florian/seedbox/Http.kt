@@ -96,7 +96,11 @@ fun Throwable.friendly(): String = when (this) {
     is java.net.ConnectException -> "Connexion refusée : vérifier le port"
     is java.net.MalformedURLException -> "Adresse invalide"
     is org.json.JSONException -> "Réponse inattendue : est-ce le bon service sur ce port ?"
-    else -> message ?: javaClass.simpleName
+    else -> if (message?.contains("Cleartext", ignoreCase = true) == true) {
+        "HTTP non chiffré refusé : utiliser une adresse en https://"
+    } else {
+        message ?: javaClass.simpleName
+    }
 }
 
 /** « cluster1k.seedbox.fr:45338/ » → « https://cluster1k.seedbox.fr:45338 » */

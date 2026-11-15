@@ -3,12 +3,14 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
 
-    <!-- allowBackup=false : les secrets sont chiffrés avec une clé du Keystore qui ne suit pas une sauvegarde -->
+    <!-- allowBackup=false + dataExtractionRules : ni sauvegarde ni transfert d'appareil (les secrets sont
+         chiffrés avec une clé du Keystore qui ne suit pas, et les adresses de la seedbox restent sur le téléphone) -->
     <application
         android:label="@string/app_name"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher"
         android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
         android:supportsRtl="true"
         android:theme="@android:style/Theme.Material.NoActionBar">
 
@@ -28,13 +30,13 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="magnet" />
             </intent-filter>
-            <!-- Fichiers .torrent ouverts depuis les téléchargements ou un gestionnaire de fichiers -->
+            <!-- Fichiers .torrent ouverts depuis les téléchargements ou un gestionnaire de fichiers
+                 (content:// seulement : un file:// pourrait désigner un fichier privé de l'appli) -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="content" />
-                <data android:scheme="file" />
                 <data android:mimeType="application/x-bittorrent" />
             </intent-filter>
             <!-- « Partager » : lien magnet en texte ou fichier .torrent -->
