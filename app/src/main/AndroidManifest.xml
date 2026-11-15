@@ -5,7 +5,7 @@
 
     <!-- allowBackup=false : les secrets sont chiffrés avec une clé du Keystore qui ne suit pas une sauvegarde -->
     <application
-        android:label="Seedbox"
+        android:label="@string/app_name"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher"
         android:allowBackup="false"
