@@ -38,6 +38,50 @@ data class Torrent(
     }
 }
 
+data class TorrentProps(
+    val savePath: String,
+    val addedOn: Long,
+    val completedOn: Long,
+    val createdOn: Long,
+    val seedingTime: Long,
+    val elapsed: Long,
+    val uploaded: Long,
+    val downloaded: Long,
+    val uploadedSession: Long,
+    val downloadedSession: Long,
+    val wasted: Long,
+    val seeds: Int,
+    val seedsTotal: Int,
+    val peers: Int,
+    val peersTotal: Int,
+    val connections: Int,
+    val dlAvg: Long,
+    val upAvg: Long,
+    val piecesHave: Int,
+    val piecesNum: Int,
+    val pieceSize: Long,
+    val comment: String,
+    val createdBy: String,
+    val isPrivate: Boolean?,
+)
+
+data class TorrentFile(val index: Int, val name: String, val size: Long, val progress: Double, val priority: Int) {
+    val skipped get() = priority == 0
+}
+
+data class Tracker(val url: String, val status: Int, val seeds: Int, val peers: Int, val leeches: Int, val message: String) {
+    val statusLabel get() = when (status) {
+        0 -> "Désactivé"
+        1 -> "Pas encore contacté"
+        2 -> "Fonctionne"
+        3 -> "Mise à jour…"
+        4 -> "Ne fonctionne pas"
+        else -> "État $status"
+    }
+}
+
+data class Peer(val address: String, val client: String, val country: String, val progress: Double, val dlSpeed: Long, val upSpeed: Long)
+
 data class Category(val name: String, val savePath: String)
 
 /** Torrent à ajouter : lien (magnet ou URL d'un .torrent) ou fichier */
@@ -86,8 +130,13 @@ class QBittorrent(private val cfg: ServiceConfig) {
 
     fun version(): String = call("/api/v2/app/version").trim()
 
-    fun torrents(): List<Torrent> {
-        val a = JSONArray(call("/api/v2/torrents/info?sort=added_on&reverse=true"))
+    fun torrents(): List<Torrent> = parseTorrents(call("/api/v2/torrents/info?sort=added_on&reverse=true"))
+
+    /** Un torrent, null s'il a été supprimé */
+    fun torrent(hash: String): Torrent? = parseTorrents(call("/api/v2/torrents/info?hashes=$hash")).firstOrNull()
+
+    private fun parseTorrents(json: String): List<Torrent> {
+        val a = JSONArray(json)
         return (0 until a.length()).map { i ->
             val o = a.getJSONObject(i)
             Torrent(
@@ -104,6 +153,69 @@ class QBittorrent(private val cfg: ServiceConfig) {
                 category = o.optString("category"),
             )
         }
+    }
+
+    fun properties(hash: String): TorrentProps {
+        val o = JSONObject(call("/api/v2/torrents/properties?hash=$hash"))
+        return TorrentProps(
+            savePath = o.optString("save_path"),
+            addedOn = o.optLong("addition_date"),
+            completedOn = o.optLong("completion_date"),
+            createdOn = o.optLong("creation_date"),
+            seedingTime = o.optLong("seeding_time"),
+            elapsed = o.optLong("time_elapsed"),
+            uploaded = o.optLong("total_uploaded"),
+            downloaded = o.optLong("total_downloaded"),
+            uploadedSession = o.optLong("total_uploaded_session"),
+            downloadedSession = o.optLong("total_downloaded_session"),
+            wasted = o.optLong("total_wasted"),
+            seeds = o.optInt("seeds"),
+            seedsTotal = o.optInt("seeds_total"),
+            peers = o.optInt("peers"),
+            peersTotal = o.optInt("peers_total"),
+            connections = o.optInt("nb_connections"),
+            dlAvg = o.optLong("dl_speed_avg"),
+            upAvg = o.optLong("up_speed_avg"),
+            piecesHave = o.optInt("pieces_have"),
+            piecesNum = o.optInt("pieces_num"),
+            pieceSize = o.optLong("piece_size"),
+            comment = o.optString("comment"),
+            createdBy = o.optString("created_by"),
+            isPrivate = if (o.has("is_private")) o.optBoolean("is_private") else null,
+        )
+    }
+
+    fun files(hash: String): List<TorrentFile> {
+        val a = JSONArray(call("/api/v2/torrents/files?hash=$hash"))
+        return (0 until a.length()).map { i ->
+            val o = a.getJSONObject(i)
+            TorrentFile(o.optInt("index", i), o.optString("name"), o.optLong("size"), o.optDouble("progress", 0.0), o.optInt("priority", 1))
+        }
+    }
+
+    /** Trackers réels (sans les pseudo-trackers DHT, PeX et LSD) */
+    fun trackers(hash: String): List<Tracker> {
+        val a = JSONArray(call("/api/v2/torrents/trackers?hash=$hash"))
+        return (0 until a.length()).map { a.getJSONObject(it) }
+            .filterNot { it.optString("url").startsWith("** [") }
+            .map { Tracker(it.optString("url"), it.optInt("status"), it.optInt("num_seeds"), it.optInt("num_peers"), it.optInt("num_leeches"), it.optString("msg")) }
+    }
+
+    fun peers(hash: String): List<Peer> {
+        val o = JSONObject(call("/api/v2/sync/torrentPeers?hash=$hash&rid=0")).optJSONObject("peers") ?: return emptyList()
+        return o.keys().asSequence().mapNotNull { k ->
+            val p = o.optJSONObject(k) ?: return@mapNotNull null
+            Peer(k, p.optString("client"), p.optString("country"), p.optDouble("progress", 0.0), p.optLong("dl_speed"), p.optLong("up_speed"))
+        }.sortedByDescending { it.dlSpeed + it.upSpeed }.toList()
+    }
+
+    fun recheck(hash: String) { call("/api/v2/torrents/recheck", mapOf("hashes" to hash)) }
+    fun reannounce(hash: String) { call("/api/v2/torrents/reannounce", mapOf("hashes" to hash)) }
+    fun setLocation(hash: String, path: String) { call("/api/v2/torrents/setLocation", mapOf("hashes" to hash, "location" to path)) }
+
+    /** Priorité de fichiers : 0 = ne pas télécharger, 1 = normale */
+    fun setFilePriority(hash: String, indexes: List<Int>, priority: Int) {
+        call("/api/v2/torrents/filePrio", mapOf("hash" to hash, "id" to indexes.joinToString("|"), "priority" to priority.toString()))
     }
 
     fun transfer(): Transfer {

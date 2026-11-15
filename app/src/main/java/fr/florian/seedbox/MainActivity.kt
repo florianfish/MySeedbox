@@ -84,21 +84,30 @@ private fun App(settings: Settings, incoming: Incoming?, onIncomingHandled: () -
     // Premier lancement : rien de réglé, on ouvre directement les réglages
     var showSettings by rememberSaveable { mutableStateOf(configs.values.none { it.configured }) }
     var showAdd by rememberSaveable { mutableStateOf(false) }
+    var detailHash by rememberSaveable { mutableStateOf<String?>(null) }
     val openSettings = { showAdd = false; showSettings = true }
     // Un torrent arrive d'une autre appli : écran d'ajout
     LaunchedEffect(incoming) { if (incoming != null) { showSettings = false; showAdd = true } }
     val closeAdd = { showAdd = false; onIncomingHandled() }
-    val main = !showSettings && !showAdd
+    val main = !showSettings && !showAdd && detailHash == null
 
     BackHandler(enabled = showSettings) { showSettings = false }
     BackHandler(enabled = showAdd) { closeAdd() }
+    BackHandler(enabled = detailHash != null && !showAdd && !showSettings) { detailHash = null }
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = {
                     Row(verticalAlignment = Alignment.Bottom) {
-                        Text(if (showSettings) "Réglages" else if (showAdd) "Ajouter un torrent" else "Seedbox")
+                        Text(
+                            when {
+                                showSettings -> "Réglages"
+                                showAdd -> "Ajouter un torrent"
+                                detailHash != null -> "Torrent"
+                                else -> "Seedbox"
+                            }
+                        )
                         if (main) {
                             Spacer(Modifier.width(8.dp))
                             Text(
@@ -110,7 +119,13 @@ private fun App(settings: Settings, incoming: Incoming?, onIncomingHandled: () -
                     }
                 },
                 navigationIcon = {
-                    if (!main) IconButton(onClick = { if (showAdd) closeAdd() else showSettings = false }) {
+                    if (!main) IconButton(onClick = {
+                        when {
+                            showAdd -> closeAdd()
+                            showSettings -> showSettings = false
+                            else -> detailHash = null
+                        }
+                    }) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, "Retour")
                     }
                 },
@@ -150,8 +165,10 @@ private fun App(settings: Settings, incoming: Incoming?, onIncomingHandled: () -
                     settings.set(s, c)
                     configs = settings.all()
                 }
+            } else if (detailHash != null) {
+                TorrentDetailScreen(configs.getValue(Service.QBIT), detailHash!!, onClose = { detailHash = null })
             } else when (tab) {
-                Tab.TORRENTS -> TorrentsScreen(configs.getValue(Service.QBIT), openSettings)
+                Tab.TORRENTS -> TorrentsScreen(configs.getValue(Service.QBIT), openSettings, onOpen = { detailHash = it })
                 Tab.QUEUE -> QueueScreen(configs, openSettings)
                 Tab.CALENDAR -> CalendarScreen(configs, openSettings)
                 Tab.STATUS -> StatusScreen(configs, openSettings)

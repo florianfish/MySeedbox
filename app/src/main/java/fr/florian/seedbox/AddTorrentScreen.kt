@@ -192,7 +192,13 @@ fun AddTorrentScreen(cfg: ServiceConfig, incoming: Incoming?, onDone: () -> Unit
 /** Navigateur de dossiers de la seedbox, plein écran */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun FolderPicker(client: QBittorrent, start: String, onPick: (String) -> Unit, onDismiss: () -> Unit) {
+fun FolderPicker(
+    client: QBittorrent,
+    start: String,
+    onPick: (String) -> Unit,
+    onDismiss: () -> Unit,
+    title: String = "Choisir un dossier",
+) {
     var current by remember { mutableStateOf(start.trimEnd('/').ifBlank { "/" }) }
     val loader = rememberLoader(current) { client.directories(current) }
 
@@ -200,7 +206,7 @@ private fun FolderPicker(client: QBittorrent, start: String, onPick: (String) ->
         Surface(Modifier.fillMaxSize()) {
             Column(Modifier.safeDrawingPadding()) {
                 TopAppBar(
-                    title = { Text("Choisir un dossier") },
+                    title = { Text(title) },
                     navigationIcon = { IconButton(onClick = onDismiss) { Icon(Icons.Filled.Close, "Fermer") } },
                 )
                 Text(

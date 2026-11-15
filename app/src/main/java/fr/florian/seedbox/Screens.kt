@@ -38,7 +38,7 @@ private enum class TorrentFilter(val label: String, val keep: (Torrent) -> Boole
 }
 
 @Composable
-fun TorrentsScreen(cfg: ServiceConfig, onOpenSettings: () -> Unit) {
+fun TorrentsScreen(cfg: ServiceConfig, onOpenSettings: () -> Unit, onOpen: (String) -> Unit) {
     if (!cfg.configured) return NotConfigured("qBittorrent", onOpenSettings)
     val client = remember(cfg) { QBittorrent(cfg) }
     val loader = rememberLoader(client, autoRefreshMs = 5_000) { client.torrents() to client.transfer() }
@@ -81,6 +81,7 @@ fun TorrentsScreen(cfg: ServiceConfig, onOpenSettings: () -> Unit) {
         items(shown, key = { it.hash }) { t ->
             TorrentCard(
                 t,
+                onClick = { onOpen(t.hash) },
                 onToggle = { act { if (t.paused) client.resume(t.hash) else client.pause(t.hash) } },
                 onDelete = { toDelete = t },
             )
@@ -88,35 +89,20 @@ fun TorrentsScreen(cfg: ServiceConfig, onOpenSettings: () -> Unit) {
     }
 
     toDelete?.let { t ->
-        var withFiles by remember(t) { mutableStateOf(false) }
-        AlertDialog(
-            onDismissRequest = { toDelete = null },
-            title = { Text("Supprimer le torrent ?") },
-            text = {
-                Column {
-                    Text(t.name, maxLines = 3, overflow = TextOverflow.Ellipsis)
-                    Spacer(Modifier.height(12.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Checkbox(checked = withFiles, onCheckedChange = { withFiles = it })
-                        Text("Supprimer aussi les fichiers")
-                    }
-                }
+        DeleteTorrentDialog(
+            t,
+            onConfirm = { withFiles ->
+                toDelete = null
+                act { client.delete(t.hash, withFiles) }
             },
-            confirmButton = {
-                TextButton(onClick = {
-                    val files = withFiles
-                    toDelete = null
-                    act { client.delete(t.hash, files) }
-                }) { Text("Supprimer") }
-            },
-            dismissButton = { TextButton(onClick = { toDelete = null }) { Text("Annuler") } },
+            onDismiss = { toDelete = null },
         )
     }
 }
 
 @Composable
-private fun TorrentCard(t: Torrent, onToggle: () -> Unit, onDelete: () -> Unit) {
-    Card(Modifier.fillMaxWidth()) {
+private fun TorrentCard(t: Torrent, onClick: () -> Unit, onToggle: () -> Unit, onDelete: () -> Unit) {
+    Card(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(start = 12.dp, top = 12.dp, end = 4.dp, bottom = 4.dp)) {
             Text(
                 t.name,
