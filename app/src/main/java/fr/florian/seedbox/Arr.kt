@@ -14,6 +14,7 @@ data class Disk(val path: String, val free: Long, val total: Long)
 
 data class QueueItem(
     val service: Service,
+    val downloadId: String?,
     val title: String,
     val detail: String?,
     val size: Long,
@@ -72,11 +73,12 @@ class Arr(val service: Service, cfg: ServiceConfig) {
             val status = o.optString("trackedDownloadStatus")
             QueueItem(
                 service = service,
+                downloadId = o.optString("downloadId").ifBlank { null },
                 title = title,
                 detail = detail,
                 size = o.optLong("size"),
                 sizeLeft = o.optLong("sizeleft"),
-                timeLeft = o.optString("timeleft").ifBlank { null },
+                timeLeft = parseTimeLeft(o.optString("timeleft"))?.let { duration(it) },
                 state = queueState(o.optString("trackedDownloadState"), o.optString("status")),
                 problem = error ?: messages.firstOrNull()?.takeIf { status == "warning" || status == "error" },
             )
@@ -135,6 +137,14 @@ class Arr(val service: Service, cfg: ServiceConfig) {
             else -> status.ifBlank { tracked }
         }
     }
+}
+
+/** « 1.02:03:04 » ou « 02:03:04 » (format .NET des *arr) → secondes ; null si vide ou nul */
+private fun parseTimeLeft(s: String): Long? {
+    val m = Regex("""^(?:(\d+)\.)?(\d+):(\d+):(\d+)""").find(s.trim()) ?: return null
+    val (d, h, min, sec) = m.destructured
+    val total = (d.toLongOrNull() ?: 0) * 86_400 + h.toLong() * 3600 + min.toLong() * 60 + sec.toLong()
+    return total.takeIf { it > 0 }
 }
 
 private fun JSONArray.objects(): List<JSONObject> = (0 until length()).mapNotNull { optJSONObject(it) }

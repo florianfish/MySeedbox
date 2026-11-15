@@ -180,10 +180,20 @@ fun QueueScreen(configs: Map<Service, ServiceConfig>, onOpenSettings: () -> Unit
     val loader = rememberLoader(arrs, autoRefreshMs = 15_000) { gather(arrs) { it.queue() } }
     LoadedList(loader) { g ->
         g.errors.forEach { item { ErrorCard(it) } }
-        if (g.items.isEmpty()) item { Empty("Rien en cours de téléchargement ou d'import") }
-        items(g.items) { QueueCard(it) }
+        val merged = mergeQueue(g.items)
+        if (merged.isEmpty()) item { Empty("Rien en cours de téléchargement ou d'import") }
+        items(merged) { QueueCard(it) }
     }
 }
+
+/** Un pack de saison apparaît une fois par épisode dans Sonarr : une seule carte par téléchargement */
+private fun mergeQueue(items: List<QueueItem>): List<QueueItem> =
+    items.groupBy { it.service to (it.downloadId ?: (it.title + it.detail)) }.values.map { group ->
+        val first = group.first()
+        if (group.size == 1) return@map first
+        val codes = group.mapNotNull { it.detail?.substringBefore(" · ") }.distinct().sorted()
+        if (codes.size < 2) first else first.copy(detail = "${codes.size} épisodes : ${codes.first()} → ${codes.last()}")
+    }
 
 @Composable
 private fun QueueCard(q: QueueItem) {
@@ -318,7 +328,10 @@ fun StatusScreen(configs: Map<Service, ServiceConfig>, onOpenSettings: () -> Uni
     }
     LoadedList(loader) { statuses ->
         // Radarr et Sonarr voient souvent les mêmes disques : un seul bloc, sans doublons
+        // Plusieurs chemins sur le même volume (mêmes tailles) : regroupés sur une ligne
         val disks = statuses.flatMap { it.disks }.distinctBy { it.path }
+            .groupBy { it.free to it.total }.values
+            .map { same -> same.first().copy(path = same.joinToString(" · ") { it.path }) }
         if (disks.isNotEmpty()) item { DisksCard(disks) }
         items(statuses, key = { it.service.name }) { StatusCard(it) }
     }

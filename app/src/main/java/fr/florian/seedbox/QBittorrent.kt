@@ -107,7 +107,7 @@ class QBittorrent(private val cfg: ServiceConfig) {
             dlSpeed = s.optLong("dl_info_speed"),
             upSpeed = s.optLong("up_info_speed"),
             freeSpace = if (s.has("free_space_on_disk")) s.optLong("free_space_on_disk") else null,
-            globalRatio = s.optString("global_ratio").ifBlank { null },
+            globalRatio = s.optString("global_ratio").toDoubleOrNull()?.let { "%.2f".format(java.util.Locale.FRANCE, it) },
         )
     }
 
