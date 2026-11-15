@@ -10,6 +10,8 @@ Appli Android pour suivre et piloter sa seedbox (seedbox.fr) : **qBittorrent**, 
 - **État** : version et santé de chaque service, espace disque (Radarr/Sonarr), espace libre et ratio global (qBittorrent), indexeurs actifs ou en échec (Prowlarr).
 - **Réglages** : adresse, clé API (ou identifiants qBittorrent) et bouton « Tester » pour chaque service. Les secrets sont chiffrés avec une clé du Keystore Android et ne sont jamais dans le code.
 
+- **Sauvegarde** (Réglages) : export de toute la configuration dans un fichier chiffré par un mot de passe (AES-256-GCM, clé dérivée par PBKDF2), à enregistrer sur Google Drive ou ailleurs, puis import sur un autre téléphone. Le mot de passe n'est enregistré nulle part : sans lui, la sauvegarde est inutilisable.
+
 Tirer vers le bas pour actualiser un écran.
 
 ## Configuration

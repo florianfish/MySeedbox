@@ -167,10 +167,17 @@ private fun App(settings: Settings, incoming: Incoming?, onIncomingHandled: () -
                     onOpenSettings = openSettings,
                 )
             } else if (showSettings) {
-                SettingsScreen(configs) { s, c ->
-                    settings.set(s, c)
-                    configs = settings.all()
-                }
+                SettingsScreen(
+                    configs,
+                    onSave = { s, c ->
+                        settings.set(s, c)
+                        configs = settings.all()
+                    },
+                    onImport = { imported ->
+                        imported.forEach { (s, c) -> settings.set(s, c) }
+                        configs = settings.all()
+                    },
+                )
             } else if (detailHash != null) {
                 TorrentDetailScreen(configs.getValue(Service.QBIT), detailHash!!, onClose = { detailHash = null })
             } else when (tab) {
