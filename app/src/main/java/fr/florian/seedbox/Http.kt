@@ -13,6 +13,9 @@ class HttpException(val code: Int, message: String) : IOException(message)
 
 class Response(val code: Int, val body: String, val cookies: List<String>)
 
+class FilePart(val name: String, val filename: String, val type: String, val bytes: ByteArray)
+class Multipart(val fields: Map<String, String>, val files: List<FilePart> = emptyList())
+
 /** Client HTTP bloquant (HttpURLConnection) : à appeler sur Dispatchers.IO */
 object Http {
     fun request(
@@ -20,6 +23,7 @@ object Http {
         method: String = "GET",
         headers: Map<String, String> = emptyMap(),
         form: Map<String, String>? = null,
+        multipart: Multipart? = null,
     ): Response {
         val conn = URL(url).openConnection() as HttpURLConnection
         try {
@@ -33,6 +37,7 @@ object Http {
                 conn.setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
                 conn.outputStream.use { it.write(data) }
             }
+            if (multipart != null) writeMultipart(conn, multipart)
             val code = conn.responseCode
             val stream = if (code >= 400) conn.errorStream else conn.inputStream
             val body = stream?.bufferedReader()?.use { it.readText() } ?: ""
@@ -42,6 +47,25 @@ object Http {
             return Response(code, body, cookies)
         } finally {
             conn.disconnect()
+        }
+    }
+
+    private fun writeMultipart(conn: HttpURLConnection, m: Multipart) {
+        val boundary = "----MySeedbox" + System.nanoTime()
+        conn.doOutput = true
+        conn.setRequestProperty("Content-Type", "multipart/form-data; boundary=$boundary")
+        conn.outputStream.use { out ->
+            fun w(s: String) = out.write(s.toByteArray())
+            m.fields.forEach { (k, v) ->
+                w("--$boundary\r\nContent-Disposition: form-data; name=\"$k\"\r\n\r\n$v\r\n")
+            }
+            m.files.forEach { f ->
+                val name = f.filename.replace("\"", "")
+                w("--$boundary\r\nContent-Disposition: form-data; name=\"${f.name}\"; filename=\"$name\"\r\nContent-Type: ${f.type}\r\n\r\n")
+                out.write(f.bytes)
+                w("\r\n")
+            }
+            w("--$boundary--\r\n")
         }
     }
 
@@ -57,6 +81,7 @@ object Http {
         401 -> "Clé API ou identifiants refusés (401)"
         403 -> "Accès refusé (403)"
         404 -> "Introuvable (404) : vérifier l'adresse, le port et l'URL de base"
+        409 -> "Refusé (409) : torrent déjà présent ?"
         in 500..599 -> "Erreur du serveur ($code)"
         else -> "Erreur HTTP $code"
     }

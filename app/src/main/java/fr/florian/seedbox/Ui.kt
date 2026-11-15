@@ -13,6 +13,7 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.addPathNodes
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -76,7 +77,7 @@ fun <T> rememberLoader(vararg keys: Any?, autoRefreshMs: Long = 0, fetch: suspen
 /** Liste avec « tirer pour actualiser », chargement et message d'erreur */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun <T> LoadedList(loader: Loader<T>, content: LazyListScope.(T) -> Unit) {
+fun <T> LoadedList(loader: Loader<T>, bottomSpace: Dp = 12.dp, content: LazyListScope.(T) -> Unit) {
     PullToRefreshBox(
         isRefreshing = loader.manualRefresh,
         onRefresh = { loader.refresh(manual = true) },
@@ -84,7 +85,7 @@ fun <T> LoadedList(loader: Loader<T>, content: LazyListScope.(T) -> Unit) {
     ) {
         LazyColumn(
             Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(12.dp),
+            contentPadding = PaddingValues(start = 12.dp, top = 12.dp, end = 12.dp, bottom = bottomSpace),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             loader.error?.let { item { ErrorCard(it) } }
@@ -171,5 +172,6 @@ object AppIcons {
         "Visibility",
         "M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z",
     )
+    val Folder = icon("Folder", "M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z")
     val Storage = icon("Storage", "M2 20h20v-4H2v4zm2-3h2v2H4v-2zM2 4v4h20V4H2zm4 3H4V5h2v2zm-4 7h20v-4H2v4zm2-3h2v2H4v-2z")
 }

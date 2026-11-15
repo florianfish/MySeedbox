@@ -58,7 +58,8 @@ fun TorrentsScreen(cfg: ServiceConfig, onOpenSettings: () -> Unit) {
         }
     }
 
-    LoadedList(loader) { (torrents, transfer) ->
+    // Marge du bas : le bouton « + » ne cache pas la dernière carte
+    LoadedList(loader, bottomSpace = 88.dp) { (torrents, transfer) ->
         item {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text("↓ ${speed(transfer.dlSpeed)}   ↑ ${speed(transfer.upSpeed)}", style = MaterialTheme.typography.titleMedium)

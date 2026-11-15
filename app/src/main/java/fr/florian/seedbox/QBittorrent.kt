@@ -38,6 +38,17 @@ data class Torrent(
     }
 }
 
+data class Category(val name: String, val savePath: String)
+
+/** Torrent à ajouter : lien (magnet ou URL d'un .torrent) ou fichier */
+class NewTorrent(
+    val link: String?,
+    val file: FilePart?,
+    val savePath: String,
+    val category: String,
+    val paused: Boolean,
+)
+
 data class Transfer(val dlSpeed: Long, val upSpeed: Long, val freeSpace: Long?, val globalRatio: String?)
 
 /** WebUI API v2 de qBittorrent : connexion par cookie de session */
@@ -62,13 +73,13 @@ class QBittorrent(private val cfg: ServiceConfig) {
         if (jar.isNotEmpty()) cookies[sessionKey] = jar.joinToString("; ")
     }
 
-    private fun call(path: String, form: Map<String, String>? = null): String {
+    private fun call(path: String, form: Map<String, String>? = null, multipart: Multipart? = null): String {
         if (cookies[sessionKey] == null) login()
-        val method = if (form != null) "POST" else "GET"
-        var r = Http.request("$base$path", method, headers(), form)
+        val method = if (form != null || multipart != null) "POST" else "GET"
+        var r = Http.request("$base$path", method, headers(), form, multipart)
         if (r.code == 403 || r.code == 401) { // session expirée
             login()
-            r = Http.request("$base$path", method, headers(), form)
+            r = Http.request("$base$path", method, headers(), form, multipart)
         }
         return Http.check(r)
     }
@@ -111,6 +122,50 @@ class QBittorrent(private val cfg: ServiceConfig) {
         )
     }
 
+    fun defaultSavePath(): String = call("/api/v2/app/defaultSavePath").trim()
+
+    /** Catégories, avec leur dossier rendu absolu (un chemin relatif part du dossier par défaut) */
+    fun categories(defaultPath: String): List<Category> {
+        val o = JSONObject(call("/api/v2/torrents/categories"))
+        return o.keys().asSequence().map { name ->
+            val sp = o.optJSONObject(name)?.optString("savePath").orEmpty().trim()
+            Category(name, if (sp.isBlank() || sp.startsWith("/")) sp else joinPath(defaultPath, sp))
+        }.sortedBy { it.name.lowercase() }.toList()
+    }
+
+    /** Sous-dossiers d'un dossier de la seedbox (qBittorrent 5+), chemins absolus triés */
+    fun directories(path: String): List<String> {
+        val body = try {
+            call("/api/v2/app/getDirectoryContent?dirPath=${Http.enc(path)}&mode=dirs")
+        } catch (e: HttpException) {
+            when (e.code) {
+                405 -> call("/api/v2/app/getDirectoryContent", mapOf("dirPath" to path, "mode" to "dirs"))
+                404 -> throw HttpException(404, "Dossier introuvable : $path")
+                else -> throw e
+            }
+        }
+        val a = JSONArray(body)
+        return (0 until a.length()).map { i ->
+            val p = a.getString(i).trimEnd('/')
+            if (p.startsWith("/")) p else joinPath(path, p)
+        }.sortedBy { it.lowercase() }
+    }
+
+    fun add(t: NewTorrent) {
+        val fields = buildMap {
+            t.link?.let { put("urls", it) }
+            if (t.savePath.isNotBlank()) {
+                put("savepath", t.savePath)
+                put("autoTMM", "false") // sinon la catégorie impose son dossier
+            }
+            if (t.category.isNotBlank()) put("category", t.category)
+            put("paused", t.paused.toString())  // qBittorrent 4
+            put("stopped", t.paused.toString()) // qBittorrent 5
+        }
+        val body = call("/api/v2/torrents/add", multipart = Multipart(fields, listOfNotNull(t.file)))
+        if (body.trim() == "Fails.") throw HttpException(409, "Torrent refusé : déjà présent ou invalide")
+    }
+
     fun pause(hash: String) = action("stop", "pause", hash)
     fun resume(hash: String) = action("start", "resume", hash)
 
@@ -133,3 +188,9 @@ class QBittorrent(private val cfg: ServiceConfig) {
         private val cookies = java.util.concurrent.ConcurrentHashMap<String, String>()
     }
 }
+
+fun joinPath(dir: String, name: String) = dir.trimEnd('/') + "/" + name.trimStart('/')
+
+/** Dossier parent, null à la racine */
+fun parentPath(path: String): String? =
+    if (path == "/" || path.isBlank()) null else path.trimEnd('/').substringBeforeLast('/').ifBlank { "/" }
