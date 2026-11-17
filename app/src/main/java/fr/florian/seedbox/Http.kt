@@ -69,6 +69,21 @@ object Http {
         }
     }
 
+    /** Contenu binaire (image…), ou HttpException si le code n'est pas 2xx */
+    fun bytes(url: String, headers: Map<String, String> = emptyMap()): ByteArray {
+        val conn = URL(url).openConnection() as HttpURLConnection
+        try {
+            conn.connectTimeout = 10_000
+            conn.readTimeout = 20_000
+            headers.forEach { (k, v) -> conn.setRequestProperty(k, v) }
+            val code = conn.responseCode
+            if (code !in 200..299) throw HttpException(code, httpMessage(code))
+            return conn.inputStream.use { it.readBytes() }
+        } finally {
+            conn.disconnect()
+        }
+    }
+
     /** Corps de la réponse, ou HttpException si le code n'est pas 2xx */
     fun check(r: Response): String {
         if (r.code !in 200..299) throw HttpException(r.code, httpMessage(r.code))

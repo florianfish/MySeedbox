@@ -30,6 +30,16 @@ data class CalendarItem(val date: LocalDate, val service: Service, val title: St
 
 data class Indexer(val name: String, val enabled: Boolean, val failing: Boolean)
 
+/** Film ou série importé récemment (une carte par série, avec ses derniers épisodes) */
+data class RecentItem(
+    val service: Service,
+    val mediaId: Int,
+    val title: String,
+    val detail: String?,
+    val date: Instant,
+    val poster: PosterRef,
+)
+
 /** API de Radarr / Sonarr (v3) et Prowlarr (v1), authentifiée par la clé API */
 class Arr(val service: Service, cfg: ServiceConfig) {
     private val base = cfg.url.asBaseUrl()
@@ -110,6 +120,64 @@ class Arr(val service: Service, cfg: ServiceConfig) {
                 CalendarItem(date, service, o.optString("title") + year, label, o.optBoolean("hasFile"))
             }
         }
+    }
+
+    /**
+     * Derniers imports (historique, eventType 3 = downloadFolderImported), du plus récent au plus ancien.
+     * Radarr : un film par carte. Sonarr : une carte par série, avec les épisodes arrivés.
+     */
+    fun recent(limit: Int = 30): List<RecentItem> {
+        val include = if (service == Service.SONARR) "includeSeries=true&includeEpisode=true" else "includeMovie=true"
+        val records = JSONObject(get("/history?page=1&pageSize=150&sortKey=date&sortDirection=descending&eventType=3&$include"))
+            .optJSONArray("records") ?: JSONArray()
+        val idKey = if (service == Service.SONARR) "seriesId" else "movieId"
+        // LinkedHashMap : garde l'ordre du plus récent
+        val groups = LinkedHashMap<Int, MutableList<JSONObject>>()
+        records.objects().forEach { o ->
+            val id = o.optInt(idKey)
+            if (id > 0) groups.getOrPut(id) { mutableListOf() }.add(o)
+        }
+        return groups.entries.take(limit).mapNotNull { (id, list) ->
+            val first = list.first()
+            val date = first.optString("date").toInstant() ?: return@mapNotNull null
+            val media = first.optJSONObject(if (service == Service.SONARR) "series" else "movie")
+            val year = media?.optInt("year")?.takeIf { it > 0 }
+            val (title, detail) = if (service == Service.SONARR) {
+                (media?.optString("title")?.ifBlank { null } ?: first.optString("sourceTitle")) to episodesLabel(list)
+            } else {
+                (media?.optString("title")?.ifBlank { null } ?: first.optString("sourceTitle")) to year?.toString()
+            }
+            RecentItem(service, id, title, detail, date, posterOf(id, media))
+        }
+    }
+
+    /** « S02E05 · Titre », « S02E05, S02E06 » ou « 4 épisodes : S01E01 → S01E04 » */
+    private fun episodesLabel(list: List<JSONObject>): String? {
+        val eps = list.mapNotNull { it.optJSONObject("episode") }
+            .distinctBy { it.optInt("seasonNumber") to it.optInt("episodeNumber") }
+        val codes = eps.map { "S%02dE%02d".format(it.optInt("seasonNumber"), it.optInt("episodeNumber")) }.sorted()
+        return when {
+            codes.isEmpty() -> null
+            codes.size == 1 -> listOf(codes[0], eps[0].optString("title")).filter { it.isNotBlank() }.joinToString(" · ")
+            codes.size <= 3 -> codes.joinToString(", ")
+            else -> "${codes.size} épisodes : ${codes.first()} → ${codes.last()}"
+        }
+    }
+
+    /**
+     * Pochette réduite servie par Radarr/Sonarr eux-mêmes (poster-250, avec la clé API),
+     * et en secours l'image d'origine (TMDB / TVDB), qui ne reçoit pas la clé.
+     */
+    private fun posterOf(id: Int, media: JSONObject?): PosterRef {
+        val remote = media?.optJSONArray("images")?.objects()
+            ?.firstOrNull { it.optString("coverType") == "poster" }
+            ?.optString("remoteUrl")?.takeIf { it.startsWith("https://") }
+        return PosterRef(
+            key = "${service.name}-$id",
+            url = "$base$api/mediacover/$id/poster-250.jpg",
+            headers = mapOf("X-Api-Key" to key),
+            fallback = remote,
+        )
     }
 
     fun indexers(): List<Indexer> {
