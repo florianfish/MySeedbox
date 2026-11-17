@@ -78,6 +78,7 @@ private fun AppTheme(content: @Composable () -> Unit) {
 private enum class Tab(val label: String, val icon: ImageVector) {
     TORRENTS("Torrents", AppIcons.Download),
     QUEUE("Imports", Icons.AutoMirrored.Filled.List),
+    RECENT("Récents", AppIcons.Movie),
     CALENDAR("Calendrier", Icons.Filled.DateRange),
     STATUS("État", Icons.Filled.Info),
 }
@@ -183,6 +184,7 @@ private fun App(settings: Settings, incoming: Incoming?, onIncomingHandled: () -
             } else when (tab) {
                 Tab.TORRENTS -> TorrentsScreen(configs.getValue(Service.QBIT), openSettings, onOpen = { detailHash = it })
                 Tab.QUEUE -> QueueScreen(configs, openSettings)
+                Tab.RECENT -> RecentScreen(configs, openSettings)
                 Tab.CALENDAR -> CalendarScreen(configs, openSettings)
                 Tab.STATUS -> StatusScreen(configs, openSettings)
             }

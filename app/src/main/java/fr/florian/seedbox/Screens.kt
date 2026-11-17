@@ -145,10 +145,10 @@ private fun TorrentCard(t: Torrent, onClick: () -> Unit, onToggle: () -> Unit, o
 
 // ======================= Imports (files d'attente Radarr + Sonarr) =======================
 
-private class Gathered<T>(val items: List<T>, val errors: List<String>)
+internal class Gathered<T>(val items: List<T>, val errors: List<String>)
 
 /** Interroge chaque service ; l'échec de l'un n'empêche pas d'afficher les autres */
-private suspend fun <T> gather(arrs: List<Arr>, fetch: (Arr) -> List<T>): Gathered<T> = coroutineScope {
+internal suspend fun <T> gather(arrs: List<Arr>, fetch: (Arr) -> List<T>): Gathered<T> = coroutineScope {
     val results = arrs.map { arr -> async(Dispatchers.IO) { arr to runCatching { fetch(arr) } } }.awaitAll()
     Gathered(
         results.flatMap { it.second.getOrDefault(emptyList()) },
@@ -157,7 +157,7 @@ private suspend fun <T> gather(arrs: List<Arr>, fetch: (Arr) -> List<T>): Gather
 }
 
 @Composable
-private fun rememberArrs(configs: Map<Service, ServiceConfig>, vararg services: Service): List<Arr> =
+internal fun rememberArrs(configs: Map<Service, ServiceConfig>, vararg services: Service): List<Arr> =
     remember(configs) { services.filter { configs[it]?.configured == true }.map { Arr(it, configs.getValue(it)) } }
 
 @Composable
