@@ -3,6 +3,7 @@ package fr.florian.seedbox
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
@@ -10,6 +11,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.addPathNodes
 import androidx.compose.ui.text.style.TextAlign
@@ -110,15 +112,62 @@ fun ErrorCard(message: String) {
     }
 }
 
+/** État vide : icône facultative, message et indication */
 @Composable
-fun Empty(text: String) {
-    Text(
-        text,
-        Modifier.fillMaxWidth().padding(32.dp),
-        textAlign = TextAlign.Center,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
+fun Empty(text: String, icon: ImageVector? = null, hint: String? = null) {
+    Column(
+        Modifier.fillMaxWidth().padding(horizontal = 32.dp, vertical = 48.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        icon?.let {
+            Icon(it, null, Modifier.size(48.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f))
+        }
+        Text(
+            text,
+            style = MaterialTheme.typography.titleSmall,
+            textAlign = TextAlign.Center,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        hint?.let {
+            Text(it, style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+/** Barre de progression plate (sans le point de fin ni l'espace de Material 3) */
+@Composable
+fun Bar(progress: Float, modifier: Modifier = Modifier, color: Color = MaterialTheme.colorScheme.primary) {
+    LinearProgressIndicator(
+        progress = { progress.coerceIn(0f, 1f) },
+        modifier = modifier.fillMaxWidth().height(6.dp),
+        color = color,
+        strokeCap = StrokeCap.Round,
+        gapSize = 0.dp,
+        drawStopIndicator = {},
     )
 }
+
+/** Petite étiquette arrondie (état, catégorie…) */
+@Composable
+fun Pill(
+    text: String,
+    container: Color = MaterialTheme.colorScheme.secondaryContainer,
+    content: Color = MaterialTheme.colorScheme.onSecondaryContainer,
+) {
+    Surface(shape = RoundedCornerShape(50), color = container, contentColor = content) {
+        Text(text, Modifier.padding(horizontal = 8.dp, vertical = 2.dp), style = MaterialTheme.typography.labelSmall, maxLines = 1)
+    }
+}
+
+/** Icône de chaque service, pour reconnaître film / série d'un coup d'œil */
+val Service.icon: ImageVector
+    get() = when (this) {
+        Service.QBIT -> AppIcons.Download
+        Service.RADARR -> AppIcons.Movie
+        Service.SONARR -> AppIcons.Tv
+        Service.PROWLARR -> AppIcons.Search
+    }
 
 /** Écran affiché quand le service n'est pas encore réglé */
 @Composable
@@ -146,7 +195,7 @@ fun bytes(n: Long): String {
     return String.format(Locale.FRANCE, if (v < 10) "%.1f %s" else "%.0f %s", v, UNITS[i])
 }
 
-fun speed(n: Long) = if (n <= 0) "0" else bytes(n) + "/s"
+fun speed(n: Long) = if (n <= 0) "0 Ko/s" else bytes(n) + "/s"
 
 /** Durée en secondes ; qBittorrent renvoie 8640000 pour « inconnue » */
 fun duration(seconds: Long): String? = when {
@@ -175,4 +224,16 @@ object AppIcons {
     val Folder = icon("Folder", "M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z")
     val Movie = icon("Movie", "M18 4l2 4h-3l-2-4h-2l2 4h-3l-2-4H8l2 4H5L3 4H2v14c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V4h-4z")
     val Storage = icon("Storage", "M2 20h20v-4H2v4zm2-3h2v2H4v-2zM2 4v4h20V4H2zm4 3H4V5h2v2zm-4 7h20v-4H2v4zm2-3h2v2H4v-2z")
+    val Tv = icon("Tv", "M21 3H3c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h5v2h8v-2h5c1.1 0 1.99-.9 1.99-2L23 5c0-1.1-.9-2-2-2zm0 14H3V5h18v12z")
+    val Search = icon(
+        "Search",
+        "M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z",
+    )
+    val ArrowDown = icon("ArrowDown", "M20 12l-1.41-1.41L13 16.17V4h-2v12.17l-5.58-5.59L4 12l8 8 8-8z")
+    val ArrowUp = icon("ArrowUp", "M4 12l1.41 1.41L11 7.83V20h2V7.83l5.58 5.59L20 12l-8-8-8 8z")
+    val ExpandMore = icon("ExpandMore", "M16.59 8.59L12 13.17 7.41 8.59 6 10l6 6 6-6z")
+    val Inbox = icon(
+        "Inbox",
+        "M19 3H4.99c-1.11 0-1.98.89-1.98 2L3 19c0 1.1.88 2 1.99 2H19c1.1 0 2-.9 2-2V5c0-1.11-.9-2-2-2zm0 12h-4c0 1.66-1.35 3-3 3s-3-1.34-3-3H4.99V5H19v10z",
+    )
 }

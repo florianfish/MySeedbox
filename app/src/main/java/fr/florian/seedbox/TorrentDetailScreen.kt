@@ -155,11 +155,7 @@ private fun Header(
     val t = d.torrent
     Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         SelectionContainer { Text(t.name, style = MaterialTheme.typography.titleMedium) }
-        LinearProgressIndicator(
-            progress = { t.progress.toFloat() },
-            modifier = Modifier.fillMaxWidth(),
-            color = if (t.errored) MaterialTheme.colorScheme.error else ProgressIndicatorDefaults.linearColor,
-        )
+        Bar(t.progress.toFloat(), color = if (t.errored) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary)
         val line = buildList {
             add(t.stateLabel)
             add(percent(t.progress))
@@ -259,7 +255,7 @@ private fun LazyListScope.files(files: List<TorrentFile>, onToggle: (TorrentFile
                     if (folder.isNotBlank()) {
                         Text(folder, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
-                    LinearProgressIndicator(progress = { f.progress.toFloat() }, modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp))
+                    Bar(f.progress.toFloat(), Modifier.padding(vertical = 4.dp))
                     Text(
                         if (f.skipped) "Ignoré · ${bytes(f.size)}" else "${percent(f.progress)} · ${bytes(f.size)}",
                         style = MaterialTheme.typography.bodySmall,
