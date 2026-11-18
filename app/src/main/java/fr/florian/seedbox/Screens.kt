@@ -1,19 +1,24 @@
 package fr.florian.seedbox
 
 import android.widget.Toast
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -26,6 +31,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
+import java.time.temporal.ChronoUnit
 import java.util.Locale
 
 // ======================= Torrents (qBittorrent) =======================
@@ -60,13 +66,7 @@ fun TorrentsScreen(cfg: ServiceConfig, onOpenSettings: () -> Unit, onOpen: (Stri
 
     // Marge du bas : le bouton « + » ne cache pas la dernière carte
     LoadedList(loader, bottomSpace = 88.dp) { (torrents, transfer) ->
-        item {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text("↓ ${speed(transfer.dlSpeed)}   ↑ ${speed(transfer.upSpeed)}", style = MaterialTheme.typography.titleMedium)
-                Spacer(Modifier.weight(1f))
-                Text("${torrents.size} torrents", color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-        }
+        item { SpeedSummary(transfer.dlSpeed, transfer.upSpeed) }
         item {
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 TorrentFilter.entries.forEach { f ->
@@ -77,7 +77,10 @@ fun TorrentsScreen(cfg: ServiceConfig, onOpenSettings: () -> Unit, onOpen: (Stri
             }
         }
         val shown = torrents.filter(filter.keep)
-        if (shown.isEmpty()) item { Empty("Aucun torrent") }
+        if (shown.isEmpty()) item {
+            if (filter == TorrentFilter.ALL) Empty("Aucun torrent", AppIcons.Download, "Appuie sur + pour en ajouter un")
+            else Empty("Aucun torrent dans ce filtre", AppIcons.Download)
+        }
         items(shown, key = { it.hash }) { t ->
             TorrentCard(
                 t,
@@ -100,44 +103,115 @@ fun TorrentsScreen(cfg: ServiceConfig, onOpenSettings: () -> Unit, onOpen: (Stri
     }
 }
 
+/** Vitesses globales, avec unité, mises en avant seulement quand ça transfère */
+@Composable
+private fun SpeedSummary(dl: Long, up: Long) {
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(24.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        SpeedValue(AppIcons.ArrowDown, "Réception", dl)
+        SpeedValue(AppIcons.ArrowUp, "Envoi", up)
+    }
+}
+
+@Composable
+private fun SpeedValue(icon: ImageVector, label: String, value: Long) {
+    val active = value > 0
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Icon(
+            icon, label, Modifier.size(20.dp),
+            tint = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.width(4.dp))
+        Text(
+            speed(value),
+            style = MaterialTheme.typography.titleMedium,
+            color = if (active) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+/** État du torrent en pastille colorée : erreur, en pause, en cours, terminé */
+@Composable
+private fun StatePill(t: Torrent) {
+    val c = MaterialTheme.colorScheme
+    val (bg, fg) = when {
+        t.errored -> c.errorContainer to c.onErrorContainer
+        t.paused -> c.surfaceVariant to c.onSurfaceVariant
+        !t.finished -> c.primaryContainer to c.onPrimaryContainer
+        else -> c.secondaryContainer to c.onSecondaryContainer
+    }
+    Pill(t.stateLabel, bg, fg)
+}
+
+/**
+ * Carte compacte : la barre n'apparaît que tant que le torrent n'est pas terminé.
+ * Appui long : menu (pause / suppression) ; la suppression est aussi dans le détail.
+ */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun TorrentCard(t: Torrent, onClick: () -> Unit, onToggle: () -> Unit, onDelete: () -> Unit) {
-    Card(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(start = 12.dp, top = 12.dp, end = 4.dp, bottom = 4.dp)) {
-            Text(
-                t.name,
-                Modifier.padding(end = 8.dp),
-                style = MaterialTheme.typography.titleSmall,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Spacer(Modifier.height(8.dp))
-            LinearProgressIndicator(
-                progress = { t.progress.toFloat() },
-                modifier = Modifier.fillMaxWidth().padding(end = 8.dp),
-                color = if (t.errored) MaterialTheme.colorScheme.error else ProgressIndicatorDefaults.linearColor,
-            )
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f).padding(vertical = 4.dp)) {
-                    val color = if (t.errored) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
-                    Text(
-                        "${t.stateLabel} · ${percent(t.progress)} · ${bytes(t.size)}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = color,
+    var menu by remember { mutableStateOf(false) }
+    Card(Modifier.fillMaxWidth()) {
+        Box {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .combinedClickable(
+                        onClick = onClick,
+                        onLongClick = { menu = true }, // vibration gérée par combinedClickable
                     )
-                    val parts = buildList {
-                        if (t.dlSpeed > 0) add("↓ ${speed(t.dlSpeed)}")
-                        if (t.upSpeed > 0) add("↑ ${speed(t.upSpeed)}")
-                        add("ratio %.2f".format(Locale.FRANCE, t.ratio))
-                        if (!t.finished && !t.paused) duration(t.eta)?.let { add("reste $it") }
-                        if (t.category.isNotBlank()) add(t.category)
+                    .padding(start = 16.dp, top = 12.dp, end = 4.dp, bottom = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(t.name, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    if (!t.finished || t.errored) {
+                        Bar(
+                            t.progress.toFloat(),
+                            color = if (t.errored) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                        )
                     }
-                    Text(parts.joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        StatePill(t)
+                        val parts = buildList {
+                            if (!t.finished) add(percent(t.progress))
+                            add(bytes(t.size))
+                            if (t.dlSpeed > 0) add("↓ ${speed(t.dlSpeed)}")
+                            if (t.upSpeed > 0) add("↑ ${speed(t.upSpeed)}")
+                            if (!t.finished && !t.paused) duration(t.eta)?.let { add("reste $it") }
+                            if (t.finished) add("ratio %.2f".format(Locale.FRANCE, t.ratio))
+                        }
+                        Text(
+                            parts.joinToString(" · "),
+                            Modifier.weight(1f, fill = false),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        if (t.category.isNotBlank()) {
+                            Pill(t.category, MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
                 }
                 IconButton(onClick = onToggle) {
                     if (t.paused) Icon(Icons.Filled.PlayArrow, "Reprendre") else Icon(AppIcons.Pause, "Mettre en pause")
                 }
-                IconButton(onClick = onDelete) { Icon(Icons.Filled.Delete, "Supprimer") }
+            }
+            DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                DropdownMenuItem(
+                    text = { Text(if (t.paused) "Reprendre" else "Mettre en pause") },
+                    leadingIcon = { Icon(if (t.paused) Icons.Filled.PlayArrow else AppIcons.Pause, null) },
+                    onClick = { menu = false; onToggle() },
+                )
+                DropdownMenuItem(
+                    text = { Text("Supprimer…") },
+                    leadingIcon = { Icon(Icons.Filled.Delete, null) },
+                    onClick = { menu = false; onDelete() },
+                )
             }
         }
     }
@@ -168,7 +242,13 @@ fun QueueScreen(configs: Map<Service, ServiceConfig>, onOpenSettings: () -> Unit
     LoadedList(loader) { g ->
         g.errors.forEach { item { ErrorCard(it) } }
         val merged = mergeQueue(g.items)
-        if (merged.isEmpty()) item { Empty("Rien en cours de téléchargement ou d'import") }
+        if (merged.isEmpty()) item {
+            Empty(
+                "Rien en cours de téléchargement ou d'import",
+                AppIcons.Inbox,
+                "Les films et séries demandés dans Jellyseerr apparaissent ici pendant leur téléchargement.",
+            )
+        }
         items(merged) { QueueCard(it) }
     }
 }
@@ -185,30 +265,33 @@ private fun mergeQueue(items: List<QueueItem>): List<QueueItem> =
 @Composable
 private fun QueueCard(q: QueueItem) {
     Card(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(12.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(q.title, Modifier.weight(1f), style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                ServiceBadge(q.service)
-            }
-            q.detail?.let {
-                Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            }
-            Spacer(Modifier.height(8.dp))
-            LinearProgressIndicator(progress = { q.progress.toFloat() }, modifier = Modifier.fillMaxWidth())
-            val line = listOfNotNull(q.state, percent(q.progress), bytes(q.size), q.timeLeft?.let { "reste $it" })
-            Text(line.joinToString(" · "), Modifier.padding(top = 4.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            q.problem?.let {
-                Text(it, Modifier.padding(top = 4.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+        Row(Modifier.padding(16.dp)) {
+            ServiceIcon(q.service, Modifier.padding(top = 2.dp))
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(q.title, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                q.detail?.let {
+                    Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                }
+                Bar(q.progress.toFloat(), Modifier.padding(vertical = 4.dp))
+                val line = listOfNotNull(q.state, percent(q.progress), bytes(q.size), q.timeLeft?.let { "reste $it" })
+                Text(line.joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                q.problem?.let {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Filled.Warning, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.error)
+                        Spacer(Modifier.width(6.dp))
+                        Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                    }
+                }
             }
         }
     }
 }
 
+/** Film (Radarr) ou série (Sonarr) : une icône plutôt qu'un badge texte sur chaque ligne */
 @Composable
-private fun ServiceBadge(s: Service) {
-    Surface(shape = MaterialTheme.shapes.small, color = MaterialTheme.colorScheme.secondaryContainer) {
-        Text(s.label, Modifier.padding(horizontal = 6.dp, vertical = 2.dp), style = MaterialTheme.typography.labelSmall)
-    }
+private fun ServiceIcon(s: Service, modifier: Modifier = Modifier) {
+    Icon(s.icon, s.label, modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
 }
 
 // ======================= Calendrier =======================
@@ -236,28 +319,45 @@ fun CalendarScreen(configs: Map<Service, ServiceConfig>, onOpenSettings: () -> U
     }
     LoadedList(loader) { g ->
         g.errors.forEach { item { ErrorCard(it) } }
-        if (g.items.isEmpty()) item { Empty("Aucune sortie prévue dans les 30 prochains jours") }
+        if (g.items.isEmpty()) item { Empty("Aucune sortie prévue dans les 30 prochains jours", Icons.Filled.DateRange) }
+        // Une carte par jour, une ligne par sortie
         g.items.sortedWith(compareBy({ it.date }, { it.title })).groupBy { it.date }.forEach { (date, list) ->
             item(key = date.toString()) {
-                Text(
-                    dayLabel(date),
-                    Modifier.padding(top = 8.dp),
-                    style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.primary,
-                )
-            }
-            items(list) { c ->
-                Card(Modifier.fillMaxWidth()) {
-                    Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            Text(c.title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Text(c.detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    DayHeader(date)
+                    Card(Modifier.fillMaxWidth()) {
+                        list.forEachIndexed { i, c ->
+                            if (i > 0) HorizontalDivider(Modifier.padding(start = 52.dp), color = MaterialTheme.colorScheme.outlineVariant)
+                            CalendarRow(c)
                         }
-                        if (c.hasFile) Icon(Icons.Filled.CheckCircle, "Déjà téléchargé", Modifier.padding(horizontal = 8.dp), tint = MaterialTheme.colorScheme.primary)
-                        ServiceBadge(c.service)
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun DayHeader(date: LocalDate) {
+    Row(Modifier.fillMaxWidth().padding(start = 4.dp, end = 4.dp, top = 8.dp), verticalAlignment = Alignment.Bottom) {
+        Text(dayLabel(date), Modifier.weight(1f), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
+        val days = ChronoUnit.DAYS.between(LocalDate.now(), date)
+        if (days > 1) Text("dans $days j", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+@Composable
+private fun CalendarRow(c: CalendarItem) {
+    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+        ServiceIcon(c.service)
+        Spacer(Modifier.width(16.dp))
+        Column(Modifier.weight(1f)) {
+            Text(c.title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(c.detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        if (c.hasFile) {
+            Spacer(Modifier.width(8.dp))
+            Pill("Disponible", MaterialTheme.colorScheme.primaryContainer, MaterialTheme.colorScheme.onPrimaryContainer)
         }
     }
 }
@@ -271,6 +371,8 @@ private class ServiceStatus(
     val health: List<HealthItem> = emptyList(),
     val lines: List<String> = emptyList(),
     val disks: List<Disk> = emptyList(),
+    /** qBittorrent : n'est affiché que si Radarr/Sonarr ne donnent pas déjà les disques */
+    val freeSpace: Long? = null,
 )
 
 private fun statusOf(service: Service, cfg: ServiceConfig): ServiceStatus = try {
@@ -282,9 +384,9 @@ private fun statusOf(service: Service, cfg: ServiceConfig): ServiceStatus = try 
             service, v,
             lines = listOfNotNull(
                 "↓ ${speed(s.dlSpeed)}   ↑ ${speed(s.upSpeed)}",
-                s.freeSpace?.let { "Espace libre : ${bytes(it)}" },
                 s.globalRatio?.let { "Ratio global : $it" },
             ),
+            freeSpace = s.freeSpace,
         )
     } else {
         val arr = Arr(service, cfg)
@@ -320,28 +422,33 @@ fun StatusScreen(configs: Map<Service, ServiceConfig>, onOpenSettings: () -> Uni
             .groupBy { it.free to it.total }.values
             .map { same -> same.first().copy(path = same.joinToString(" · ") { it.path }) }
         if (disks.isNotEmpty()) item { DisksCard(disks) }
-        items(statuses, key = { it.service.name }) { StatusCard(it) }
+        items(statuses, key = { it.service.name }) { StatusCard(it, showFreeSpace = disks.isEmpty()) }
     }
 }
 
 @Composable
 private fun DisksCard(disks: List<Disk>) {
     Card(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(AppIcons.Storage, null, Modifier.size(20.dp))
-                Spacer(Modifier.width(8.dp))
-                Text("Disques", style = MaterialTheme.typography.titleSmall)
+                Icon(AppIcons.Storage, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.width(12.dp))
+                Text("Disques", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
             }
             disks.forEach { d ->
                 val used = if (d.total > 0) 1f - d.free.toFloat() / d.total else 0f
-                Column {
-                    Text(d.path, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    LinearProgressIndicator(
-                        progress = { used },
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                        color = if (used > 0.9f) MaterialTheme.colorScheme.error else ProgressIndicatorDefaults.linearColor,
-                    )
+                // Seuils : orange à 80 %, rouge à 90 %
+                val color = when {
+                    used > 0.9f -> MaterialTheme.colorScheme.error
+                    used > 0.8f -> MaterialTheme.colorScheme.tertiary
+                    else -> MaterialTheme.colorScheme.primary
+                }
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(d.path, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text("${(used * 100).toInt()} %", style = MaterialTheme.typography.labelMedium, color = color)
+                    }
+                    Bar(used, color = color)
                     Text(
                         "${bytes(d.free)} libres sur ${bytes(d.total)}",
                         style = MaterialTheme.typography.bodySmall,
@@ -354,33 +461,45 @@ private fun DisksCard(disks: List<Disk>) {
 }
 
 @Composable
-private fun StatusCard(s: ServiceStatus) {
+private fun StatusCard(s: ServiceStatus, showFreeSpace: Boolean) {
+    // 0 = tout va bien, 1 = avertissement / information (mise à jour…), 2 = erreur
+    val level = when {
+        s.error != null || s.health.any { it.isError } -> 2
+        s.health.isNotEmpty() -> 1
+        else -> 0
+    }
+    val c = MaterialTheme.colorScheme
     Card(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                val ok = s.error == null && s.health.none { it.isError }
                 Icon(
-                    if (ok) Icons.Filled.CheckCircle else Icons.Filled.Warning,
-                    null,
+                    when (level) { 2 -> Icons.Filled.Warning; 1 -> Icons.Filled.Info; else -> Icons.Filled.CheckCircle },
+                    when (level) { 2 -> "En erreur"; 1 -> "À surveiller"; else -> "Opérationnel" },
                     Modifier.size(20.dp),
-                    tint = if (ok) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+                    tint = when (level) { 2 -> c.error; 1 -> c.tertiary; else -> c.primary },
                 )
-                Spacer(Modifier.width(8.dp))
+                Spacer(Modifier.width(12.dp))
                 Text(s.service.label, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.weight(1f))
-                s.version?.let { Text("v${it.removePrefix("v")}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                s.version?.let { Text("v${it.removePrefix("v")}", style = MaterialTheme.typography.bodySmall, color = c.onSurfaceVariant) }
             }
-            s.error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+            s.error?.let { Text(it, color = c.error, style = MaterialTheme.typography.bodySmall) }
             s.lines.forEach { Text(it, style = MaterialTheme.typography.bodySmall) }
+            if (showFreeSpace) s.freeSpace?.let { Text("Espace libre : ${bytes(it)}", style = MaterialTheme.typography.bodySmall) }
             if (s.error == null && s.health.isEmpty() && s.service != Service.QBIT) {
-                Text("Aucun problème signalé", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("Aucun problème signalé", style = MaterialTheme.typography.bodySmall, color = c.onSurfaceVariant)
             }
             s.health.forEach { h ->
-                Text(
-                    "• ${h.message}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = if (h.isError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                Row {
+                    Icon(
+                        if (h.isError) Icons.Filled.Warning else Icons.Filled.Info,
+                        null,
+                        Modifier.padding(top = 1.dp).size(16.dp),
+                        tint = if (h.isError) c.error else c.tertiary,
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text(h.message, style = MaterialTheme.typography.bodySmall, color = if (h.isError) c.error else c.onSurfaceVariant)
+                }
             }
         }
     }

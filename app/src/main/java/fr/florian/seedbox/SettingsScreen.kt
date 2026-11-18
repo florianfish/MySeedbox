@@ -3,15 +3,23 @@ package fr.florian.seedbox
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
@@ -32,18 +40,28 @@ fun SettingsScreen(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Text(
-            "Adresse complète de chaque service, avec le port et, s'il y en a une, l'URL de base " +
-                "(ex. https://cluster1k.seedbox.fr:45338). Les mêmes valeurs que dans Jellyseerr conviennent. " +
+            "Mêmes adresses que dans Jellyseerr (avec le port et l'éventuelle URL de base). " +
                 "Clés API et mot de passe sont chiffrés sur le téléphone.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Service.entries.forEach { s ->
-            ServiceForm(s, configs[s] ?: ServiceConfig(), onSave)
+            // key : l'état mémorisé (replié / déplié) reste attaché à son service
+            key(s) { ServiceForm(s, configs[s] ?: ServiceConfig(), onSave) }
         }
         BackupSection(configs, onImport)
+        Text(
+            "MySeedbox ${BuildConfig.VERSION_NAME}",
+            Modifier.fillMaxWidth().padding(vertical = 8.dp),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+        )
     }
 }
+
+/** Partie hôte de l'adresse, pour le résumé d'un service replié */
+private fun String.host(): String = trim().substringAfter("://").trimEnd('/')
 
 @Composable
 private fun ServiceForm(service: Service, saved: ServiceConfig, onSave: (Service, ServiceConfig) -> Unit) {
@@ -53,13 +71,59 @@ private fun ServiceForm(service: Service, saved: ServiceConfig, onSave: (Service
     var showSecret by remember { mutableStateOf(false) }
     var result by remember { mutableStateOf<Pair<Boolean, String>?>(null) }
     var testing by remember { mutableStateOf(false) }
+    // Service déjà réglé : replié, pour voir tous les services d'un coup d'œil
+    var expanded by rememberSaveable { mutableStateOf(!saved.configured) }
     val scope = rememberCoroutineScope()
     val current = ServiceConfig(url, user, secret)
     val dirty = current != saved
 
+    fun test(cfg: ServiceConfig) {
+        testing = true
+        scope.launch {
+            result = try {
+                val v = withContext(Dispatchers.IO) {
+                    if (service == Service.QBIT) QBittorrent(cfg).version() else Arr(service, cfg).version()
+                }
+                true to "Connecté : ${service.label} ${v.removePrefix("v")}"
+            } catch (e: Exception) {
+                false to e.friendly()
+            }
+            testing = false
+        }
+    }
+
     Card(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(service.label, style = MaterialTheme.typography.titleMedium)
+        Row(
+            Modifier.fillMaxWidth().clickable { expanded = !expanded }.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(service.icon, null, Modifier.size(24.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(Modifier.width(16.dp))
+            Column(Modifier.weight(1f)) {
+                Text(service.label, style = MaterialTheme.typography.titleMedium)
+                Text(
+                    if (saved.configured) saved.url.host() else "Non configuré",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            // Résultat du dernier test, visible même replié
+            result?.let { (ok, _) ->
+                Icon(
+                    if (ok) Icons.Filled.CheckCircle else Icons.Filled.Warning,
+                    if (ok) "Connecté" else "Échec de connexion",
+                    Modifier.padding(end = 8.dp).size(20.dp),
+                    tint = if (ok) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+                )
+            }
+            Icon(AppIcons.ExpandMore, if (expanded) "Replier" else "Déplier", Modifier.rotate(if (expanded) 180f else 0f))
+        }
+        if (expanded) Column(
+            Modifier.padding(start = 16.dp, end = 16.dp, bottom = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
             OutlinedTextField(
                 url, { url = it; result = null },
                 Modifier.fillMaxWidth(),
@@ -106,22 +170,13 @@ private fun ServiceForm(service: Service, saved: ServiceConfig, onSave: (Service
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 OutlinedButton(
                     enabled = current.configured && !testing,
-                    onClick = {
-                        testing = true
-                        scope.launch {
-                            result = try {
-                                val v = withContext(Dispatchers.IO) {
-                                    if (service == Service.QBIT) QBittorrent(current).version() else Arr(service, current).version()
-                                }
-                                true to "Connecté : ${service.label} ${v.removePrefix("v")}"
-                            } catch (e: Exception) {
-                                false to e.friendly()
-                            }
-                            testing = false
-                        }
-                    },
+                    onClick = { test(current) },
                 ) { Text(if (testing) "Test…" else "Tester") }
-                Button(enabled = dirty, onClick = { onSave(service, current) }) { Text("Enregistrer") }
+                // Enregistrer teste aussi la connexion, pour savoir tout de suite si c'est bon
+                Button(enabled = dirty && !testing, onClick = {
+                    onSave(service, current)
+                    if (current.configured) test(current)
+                }) { Text("Enregistrer") }
             }
         }
     }
@@ -186,7 +241,7 @@ private fun BackupSection(configs: Map<Service, ServiceConfig>, onImport: (Map<S
     }
 
     Card(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Sauvegarde", style = MaterialTheme.typography.titleMedium)
             Text(
                 "Exporte adresses, clés API et mot de passe qBittorrent dans un fichier chiffré par un mot de passe, " +

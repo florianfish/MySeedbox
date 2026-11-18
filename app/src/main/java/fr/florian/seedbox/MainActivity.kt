@@ -20,11 +20,9 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.unit.dp
 import androidx.core.content.IntentCompat
 
 class MainActivity : ComponentActivity() {
@@ -105,25 +103,16 @@ private fun App(settings: Settings, incoming: Incoming?, onIncomingHandled: () -
     Scaffold(
         topBar = {
             TopAppBar(
+                // Titre = écran courant ; la version est en bas des réglages
                 title = {
-                    Row(verticalAlignment = Alignment.Bottom) {
-                        Text(
-                            when {
-                                showSettings -> "Réglages"
-                                showAdd -> "Ajouter un torrent"
-                                detailHash != null -> "Torrent"
-                                else -> "Seedbox"
-                            }
-                        )
-                        if (main) {
-                            Spacer(Modifier.width(8.dp))
-                            Text(
-                                "v${BuildConfig.VERSION_NAME}",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
+                    Text(
+                        when {
+                            showSettings -> "Réglages"
+                            showAdd -> "Ajouter un torrent"
+                            detailHash != null -> "Torrent"
+                            else -> tab.label
                         }
-                    }
+                    )
                 },
                 navigationIcon = {
                     if (!main) IconButton(onClick = {
