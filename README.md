@@ -6,7 +6,7 @@ Appli Android pour suivre et piloter sa seedbox (seedbox.fr) : **qBittorrent**, 
 
 - **Torrents** (qBittorrent) : vitesses globales, liste des torrents avec progression, état, ratio et temps restant, filtres (en cours, terminés, erreurs), pause/reprise et suppression (avec ou sans les fichiers). Actualisation toutes les 5 s.
 - **Imports** : files d'attente de Radarr et Sonarr réunies (progression, état de l'import, messages d'erreur ou d'avertissement).
-- **Récents** : derniers films (Radarr) et dernières séries (Sonarr) importés, en grille avec pochette ; une carte par série avec les épisodes arrivés, et la date d'import.
+- **Récents** : derniers films (Radarr) et dernières séries (Sonarr) importés, en grille avec pochette ; une carte par série avec les épisodes arrivés, la qualité (badge sur la pochette), la taille, la langue et la date d'import. Toucher une carte ouvre sa fiche : genres, durée ou chaîne, note, résumé, et pour chaque release téléchargée la qualité, les langues, les formats personnalisés, la taille, le groupe, le client, l'heure d'import et le nom de la release (copiable).
 - **Calendrier** : épisodes et films attendus sur 30 jours, groupés par jour, avec une coche quand le fichier est déjà là.
 - **État** : version et santé de chaque service, espace disque (Radarr/Sonarr), espace libre et ratio global (qBittorrent), indexeurs actifs ou en échec (Prowlarr).
 - **Réglages** : adresse, clé API (ou identifiants qBittorrent) et bouton « Tester » pour chaque service. Les secrets sont chiffrés avec une clé du Keystore Android et ne sont jamais dans le code.
