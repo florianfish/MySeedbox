@@ -30,6 +30,25 @@ data class CalendarItem(val date: LocalDate, val service: Service, val title: St
 
 data class Indexer(val name: String, val enabled: Boolean, val failing: Boolean)
 
+/** Un import de l'historique : un film, ou un épisode */
+data class ImportEvent(
+    /** « S01E02 · Titre » (Sonarr) */
+    val episode: String?,
+    /** Nom de la release téléchargée */
+    val release: String?,
+    /** « WEBDL-1080p », « Bluray-2160p »… */
+    val quality: String?,
+    val resolution: Int,
+    /** Noms anglais renvoyés par les *arr (« French », « English »…) */
+    val languages: List<String>,
+    /** Formats personnalisés reconnus (« MULTI », « VFF »…) */
+    val formats: List<String>,
+    val size: Long?,
+    val group: String?,
+    val client: String?,
+    val date: Instant?,
+)
+
 /** Film ou série importé récemment (une carte par série, avec ses derniers épisodes) */
 data class RecentItem(
     val service: Service,
@@ -38,7 +57,25 @@ data class RecentItem(
     val detail: String?,
     val date: Instant,
     val poster: PosterRef,
-)
+    /** « 2024 · Drame, Thriller · 2 h 05 » ou « 2019 · HBO · Drame » */
+    val info: String? = null,
+    val rating: Double? = null,
+    val overview: String? = null,
+    /** Imports du plus récent au plus ancien */
+    val events: List<ImportEvent> = emptyList(),
+    /** Radarr : taille du film sur le disque, si l'historique ne la donne pas */
+    val sizeOnDisk: Long? = null,
+) {
+    /** Meilleure résolution importée : « 4K », « 1080p » */
+    val resolution: String? get() = events.maxOfOrNull { it.resolution }?.takeIf { it > 0 }?.let(::resolutionLabel)
+
+    /** Somme des fichiers (le plus récent par épisode : une mise à niveau ne compte pas double) */
+    val size: Long? get() = events.distinctBy { it.episode }.mapNotNull { it.size }.takeIf { it.isNotEmpty() }?.sum() ?: sizeOnDisk
+
+    val languages: List<String> get() = events.flatMap { it.languages }.distinct()
+}
+
+fun resolutionLabel(r: Int) = if (r >= 2160) "4K" else "${r}p"
 
 /** API de Radarr / Sonarr (v3) et Prowlarr (v1), authentifiée par la clé API */
 class Arr(val service: Service, cfg: ServiceConfig) {
@@ -147,8 +184,62 @@ class Arr(val service: Service, cfg: ServiceConfig) {
             } else {
                 (media?.optString("title")?.ifBlank { null } ?: first.optString("sourceTitle")) to year?.toString()
             }
-            RecentItem(service, id, title, detail, date, posterOf(id, media))
+            RecentItem(
+                service, id, title, detail, date, posterOf(id, media),
+                info = media?.let { mediaInfo(it) },
+                rating = media?.let { ratingOf(it) },
+                overview = media?.text("overview"),
+                events = list.map { importEvent(it) },
+                sizeOnDisk = if (service == Service.RADARR) media?.optLong("sizeOnDisk")?.takeIf { it > 0 } else null,
+            )
         }
+    }
+
+    /** Qualité, langues, taille, groupe, client et release d'un enregistrement de l'historique */
+    private fun importEvent(o: JSONObject): ImportEvent {
+        val q = o.optJSONObject("quality")?.optJSONObject("quality")
+        val data = o.optJSONObject("data")
+        // Radarr et Sonarr v4 : « languages » ; Sonarr v3 : « language »
+        val langs = (o.optJSONArray("languages")?.objects() ?: listOfNotNull(o.optJSONObject("language")))
+            .mapNotNull { it.text("name") }
+            .filter { it != "Unknown" }
+            .distinct()
+        val ep = o.optJSONObject("episode")
+        return ImportEvent(
+            episode = ep?.let {
+                listOfNotNull("S%02dE%02d".format(it.optInt("seasonNumber"), it.optInt("episodeNumber")), it.text("title")).joinToString(" · ")
+            },
+            release = o.text("sourceTitle"),
+            quality = q?.text("name")?.takeIf { it != "Unknown" },
+            resolution = q?.optInt("resolution") ?: 0,
+            languages = langs,
+            formats = o.optJSONArray("customFormats")?.objects()?.mapNotNull { it.text("name") }.orEmpty(),
+            size = data?.text("size")?.toLongOrNull()?.takeIf { it > 0 },
+            group = data?.text("releaseGroup"),
+            client = data?.text("downloadClientName") ?: data?.text("downloadClient"),
+            date = o.optString("date").toInstant(),
+        )
+    }
+
+    /** « 2024 · Drame, Thriller · 2 h 05 » (film) ou « 2019 · HBO · Drame » (série) */
+    private fun mediaInfo(m: JSONObject): String? {
+        val year = m.optInt("year").takeIf { it > 0 }?.toString()
+        val genres = m.optJSONArray("genres")?.strings()?.take(2)?.joinToString(", ") { genreFr(it) }?.ifBlank { null }
+        val parts = if (service == Service.SONARR) {
+            listOf(year, m.text("network"), genres)
+        } else {
+            val runtime = m.optInt("runtime").takeIf { it > 0 }?.let { if (it < 60) "$it min" else "%d h %02d".format(it / 60, it % 60) }
+            listOf(year, genres, runtime)
+        }
+        return parts.filterNotNull().joinToString(" · ").ifBlank { null }
+    }
+
+    /** Note sur 10 : TMDB puis IMDb pour Radarr, la note de la série pour Sonarr */
+    private fun ratingOf(m: JSONObject): Double? {
+        val r = m.optJSONObject("ratings") ?: return null
+        val values = if (service == Service.SONARR) listOf(r.optDouble("value"))
+        else listOf("tmdb", "imdb").map { r.optJSONObject(it)?.optDouble("value") ?: Double.NaN }
+        return values.firstOrNull { !it.isNaN() && it > 0 }
     }
 
     /** « S02E05 · Titre », « S02E05, S02E06 » ou « 4 épisodes : S01E01 → S01E04 » */
@@ -219,3 +310,18 @@ private fun JSONArray.objects(): List<JSONObject> = (0 until length()).mapNotNul
 private fun JSONArray.strings(): List<String> = (0 until length()).mapNotNull { optString(it).ifBlank { null } }
 private fun String.toInstant(): Instant? = if (isBlank()) null else runCatching { Instant.parse(this) }.getOrNull()
 private fun String.toDate(): LocalDate? = if (isBlank()) null else runCatching { LocalDate.parse(this) }.getOrNull()
+
+/** Valeur texte, null si absente, nulle (optString renverrait « null ») ou vide */
+private fun JSONObject.text(key: String): String? = if (isNull(key)) null else optString(key).ifBlank { null }
+
+/** Genres TMDB / TVDB (renvoyés en anglais) */
+private val GENRES = mapOf(
+    "Adventure" to "Aventure", "Comedy" to "Comédie", "Crime" to "Policier", "Documentary" to "Documentaire",
+    "Drama" to "Drame", "Family" to "Familial", "Fantasy" to "Fantastique", "History" to "Histoire",
+    "Horror" to "Horreur", "Music" to "Musique", "Mystery" to "Mystère", "Science Fiction" to "Science-fiction",
+    "Science-Fiction" to "Science-fiction", "War" to "Guerre", "TV Movie" to "Téléfilm", "Reality" to "Téléréalité",
+    "Mini-Series" to "Mini-série", "Children" to "Jeunesse", "Food" to "Cuisine", "Game Show" to "Jeu télévisé",
+    "News" to "Actualités", "Soap" to "Feuilleton", "Sport" to "Sport", "Suspense" to "Suspense",
+)
+
+private fun genreFr(g: String) = GENRES[g] ?: g
