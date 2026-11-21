@@ -24,6 +24,7 @@ object Http {
         headers: Map<String, String> = emptyMap(),
         form: Map<String, String>? = null,
         multipart: Multipart? = null,
+        json: String? = null,
     ): Response {
         val conn = URL(url).openConnection() as HttpURLConnection
         try {
@@ -38,6 +39,11 @@ object Http {
                 conn.outputStream.use { it.write(data) }
             }
             if (multipart != null) writeMultipart(conn, multipart)
+            if (json != null) {
+                conn.doOutput = true
+                conn.setRequestProperty("Content-Type", "application/json")
+                conn.outputStream.use { it.write(json.toByteArray()) }
+            }
             val code = conn.responseCode
             val stream = if (code >= 400) conn.errorStream else conn.inputStream
             val body = stream?.bufferedReader()?.use { it.readText() } ?: ""
