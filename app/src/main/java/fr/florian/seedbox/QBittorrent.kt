@@ -15,6 +15,11 @@ data class Torrent(
     val ratio: Double,
     val eta: Long,
     val category: String,
+    /** Étiquettes, triées */
+    val tags: List<String> = emptyList(),
+    /** Date d'ajout, en secondes */
+    val addedOn: Long = 0,
+    val savePath: String = "",
 ) {
     /** qBittorrent 4 : pausedDL/pausedUP, qBittorrent 5 : stoppedDL/stoppedUP */
     val paused get() = state.startsWith("paused") || state.startsWith("stopped")
@@ -151,6 +156,10 @@ class QBittorrent(private val cfg: ServiceConfig) {
                 ratio = o.optDouble("ratio", 0.0),
                 eta = o.optLong("eta"),
                 category = o.optString("category"),
+                // « a, b » ; vide sans étiquette
+                tags = o.optString("tags").split(',').map { it.trim() }.filter { it.isNotEmpty() }.sortedBy { it.lowercase() },
+                addedOn = o.optLong("added_on"),
+                savePath = o.optString("save_path"),
             )
         }
     }
@@ -209,9 +218,16 @@ class QBittorrent(private val cfg: ServiceConfig) {
         }.sortedByDescending { it.dlSpeed + it.upSpeed }.toList()
     }
 
+    // Les actions acceptent un hash, ou plusieurs séparés par « | » (voir hashes())
+
     fun recheck(hash: String) { call("/api/v2/torrents/recheck", mapOf("hashes" to hash)) }
     fun reannounce(hash: String) { call("/api/v2/torrents/reannounce", mapOf("hashes" to hash)) }
     fun setLocation(hash: String, path: String) { call("/api/v2/torrents/setLocation", mapOf("hashes" to hash, "location" to path)) }
+
+    /** Catégorie existante, ou "" pour la retirer ; avec la gestion automatique, qBittorrent déplace les fichiers */
+    fun setCategory(hash: String, category: String) {
+        call("/api/v2/torrents/setCategory", mapOf("hashes" to hash, "category" to category))
+    }
 
     /** Priorité de fichiers : 0 = ne pas télécharger, 1 = normale */
     fun setFilePriority(hash: String, indexes: List<Int>, priority: Int) {
@@ -237,7 +253,7 @@ class QBittorrent(private val cfg: ServiceConfig) {
     fun defaultSavePath(): String = call("/api/v2/app/defaultSavePath").trim()
 
     /** Catégories, avec leur dossier rendu absolu (un chemin relatif part du dossier par défaut) */
-    fun categories(defaultPath: String): List<Category> {
+    fun categories(defaultPath: String = ""): List<Category> {
         val o = JSONObject(call("/api/v2/torrents/categories"))
         return o.keys().asSequence().map { name ->
             val sp = o.optJSONObject(name)?.optString("savePath").orEmpty().trim()
@@ -300,6 +316,9 @@ class QBittorrent(private val cfg: ServiceConfig) {
         private val cookies = java.util.concurrent.ConcurrentHashMap<String, String>()
     }
 }
+
+/** Plusieurs torrents pour une seule requête */
+fun hashes(torrents: Collection<Torrent>) = torrents.joinToString("|") { it.hash }
 
 fun joinPath(dir: String, name: String) = dir.trimEnd('/') + "/" + name.trimStart('/')
 

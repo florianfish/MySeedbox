@@ -343,14 +343,26 @@ private fun LazyListScope.peers(peers: List<Peer>) {
 
 /** Confirmation de suppression, avec option « fichiers aussi » */
 @Composable
-fun DeleteTorrentDialog(t: Torrent, onConfirm: (withFiles: Boolean) -> Unit, onDismiss: () -> Unit) {
-    var withFiles by remember(t.hash) { mutableStateOf(false) }
+fun DeleteTorrentDialog(t: Torrent, onConfirm: (withFiles: Boolean) -> Unit, onDismiss: () -> Unit) =
+    DeleteTorrentDialog(listOf(t), onConfirm, onDismiss)
+
+/** Suppression d'un ou plusieurs torrents (sélection multiple) */
+@Composable
+fun DeleteTorrentDialog(torrents: List<Torrent>, onConfirm: (withFiles: Boolean) -> Unit, onDismiss: () -> Unit) {
+    var withFiles by remember(torrents) { mutableStateOf(false) }
+    val n = torrents.size
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Supprimer le torrent ?") },
+        title = { Text(if (n == 1) "Supprimer le torrent ?" else "Supprimer $n torrents ?") },
         text = {
             Column {
-                Text(t.name, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                if (n == 1) Text(torrents[0].name, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                else Text(
+                    torrents.take(3).joinToString("\n") { "• " + it.name } +
+                        if (n > 3) "\net ${n - 3} autre" + (if (n > 4) "s" else "") else "",
+                    maxLines = 8,
+                    overflow = TextOverflow.Ellipsis,
+                )
                 Spacer(Modifier.height(12.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Checkbox(checked = withFiles, onCheckedChange = { withFiles = it })

@@ -1,25 +1,16 @@
 package fr.florian.seedbox
 
-import android.widget.Toast
-import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.DateRange
-import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -27,193 +18,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
 import java.util.Locale
-
-// ======================= Torrents (qBittorrent) =======================
-
-private enum class TorrentFilter(val label: String, val keep: (Torrent) -> Boolean) {
-    ALL("Tous", { true }),
-    ACTIVE("En cours", { !it.finished }),
-    DONE("Terminés", { it.finished }),
-    ERRORS("Erreurs", { it.errored }),
-}
-
-@Composable
-fun TorrentsScreen(cfg: ServiceConfig, onOpenSettings: () -> Unit, onOpen: (String) -> Unit) {
-    if (!cfg.configured) return NotConfigured("qBittorrent", onOpenSettings)
-    val client = remember(cfg) { QBittorrent(cfg) }
-    val loader = rememberLoader(client, autoRefreshMs = 5_000) { client.torrents() to client.transfer() }
-    val scope = rememberCoroutineScope()
-    val context = LocalContext.current
-    var filter by remember { mutableStateOf(TorrentFilter.ALL) }
-    var toDelete by remember { mutableStateOf<Torrent?>(null) }
-
-    fun act(block: () -> Unit) {
-        scope.launch {
-            try {
-                withContext(Dispatchers.IO) { block() }
-                loader.refresh()
-            } catch (e: Exception) {
-                Toast.makeText(context, e.friendly(), Toast.LENGTH_LONG).show()
-            }
-        }
-    }
-
-    // Marge du bas : le bouton « + » ne cache pas la dernière carte
-    LoadedList(loader, bottomSpace = 88.dp) { (torrents, transfer) ->
-        item { SpeedSummary(transfer.dlSpeed, transfer.upSpeed) }
-        item {
-            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TorrentFilter.entries.forEach { f ->
-                    val n = torrents.count(f.keep)
-                    if (f == TorrentFilter.ERRORS && n == 0) return@forEach
-                    FilterChip(selected = filter == f, onClick = { filter = f }, label = { Text("${f.label} ($n)") })
-                }
-            }
-        }
-        val shown = torrents.filter(filter.keep)
-        if (shown.isEmpty()) item {
-            if (filter == TorrentFilter.ALL) Empty("Aucun torrent", AppIcons.Download, "Appuie sur + pour en ajouter un")
-            else Empty("Aucun torrent dans ce filtre", AppIcons.Download)
-        }
-        items(shown, key = { it.hash }) { t ->
-            TorrentCard(
-                t,
-                onClick = { onOpen(t.hash) },
-                onToggle = { act { if (t.paused) client.resume(t.hash) else client.pause(t.hash) } },
-                onDelete = { toDelete = t },
-            )
-        }
-    }
-
-    toDelete?.let { t ->
-        DeleteTorrentDialog(
-            t,
-            onConfirm = { withFiles ->
-                toDelete = null
-                act { client.delete(t.hash, withFiles) }
-            },
-            onDismiss = { toDelete = null },
-        )
-    }
-}
-
-/** Vitesses globales, avec unité, mises en avant seulement quand ça transfère */
-@Composable
-private fun SpeedSummary(dl: Long, up: Long) {
-    Row(
-        Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp),
-        horizontalArrangement = Arrangement.spacedBy(24.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        SpeedValue(AppIcons.ArrowDown, "Réception", dl)
-        SpeedValue(AppIcons.ArrowUp, "Envoi", up)
-    }
-}
-
-@Composable
-private fun SpeedValue(icon: ImageVector, label: String, value: Long) {
-    val active = value > 0
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Icon(
-            icon, label, Modifier.size(20.dp),
-            tint = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Spacer(Modifier.width(4.dp))
-        Text(
-            speed(value),
-            style = MaterialTheme.typography.titleMedium,
-            color = if (active) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-    }
-}
-
-/** État du torrent en pastille colorée : erreur, en pause, en cours, terminé */
-@Composable
-private fun StatePill(t: Torrent) {
-    val c = MaterialTheme.colorScheme
-    val (bg, fg) = when {
-        t.errored -> c.errorContainer to c.onErrorContainer
-        t.paused -> c.surfaceVariant to c.onSurfaceVariant
-        !t.finished -> c.primaryContainer to c.onPrimaryContainer
-        else -> c.secondaryContainer to c.onSecondaryContainer
-    }
-    Pill(t.stateLabel, bg, fg)
-}
-
-/**
- * Carte compacte : la barre n'apparaît que tant que le torrent n'est pas terminé.
- * Appui long : menu (pause / suppression) ; la suppression est aussi dans le détail.
- */
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
-private fun TorrentCard(t: Torrent, onClick: () -> Unit, onToggle: () -> Unit, onDelete: () -> Unit) {
-    var menu by remember { mutableStateOf(false) }
-    Card(Modifier.fillMaxWidth()) {
-        Box {
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .combinedClickable(
-                        onClick = onClick,
-                        onLongClick = { menu = true }, // vibration gérée par combinedClickable
-                    )
-                    .padding(start = 16.dp, top = 12.dp, end = 4.dp, bottom = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text(t.name, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                    if (!t.finished || t.errored) {
-                        Bar(
-                            t.progress.toFloat(),
-                            color = if (t.errored) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
-                        )
-                    }
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        StatePill(t)
-                        val parts = buildList {
-                            if (!t.finished) add(percent(t.progress))
-                            add(bytes(t.size))
-                            if (t.dlSpeed > 0) add("↓ ${speed(t.dlSpeed)}")
-                            if (t.upSpeed > 0) add("↑ ${speed(t.upSpeed)}")
-                            if (!t.finished && !t.paused) duration(t.eta)?.let { add("reste $it") }
-                            if (t.finished) add("ratio %.2f".format(Locale.FRANCE, t.ratio))
-                        }
-                        Text(
-                            parts.joinToString(" · "),
-                            Modifier.weight(1f, fill = false),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        if (t.category.isNotBlank()) OutlinedPill(t.category)
-                    }
-                }
-                IconButton(onClick = onToggle) {
-                    if (t.paused) Icon(Icons.Filled.PlayArrow, "Reprendre") else Icon(AppIcons.Pause, "Mettre en pause")
-                }
-            }
-            DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                DropdownMenuItem(
-                    text = { Text(if (t.paused) "Reprendre" else "Mettre en pause") },
-                    leadingIcon = { Icon(if (t.paused) Icons.Filled.PlayArrow else AppIcons.Pause, null) },
-                    onClick = { menu = false; onToggle() },
-                )
-                DropdownMenuItem(
-                    text = { Text("Supprimer…") },
-                    leadingIcon = { Icon(Icons.Filled.Delete, null) },
-                    onClick = { menu = false; onDelete() },
-                )
-            }
-        }
-    }
-}
 
 // ======================= Imports (files d'attente Radarr + Sonarr) =======================
 
