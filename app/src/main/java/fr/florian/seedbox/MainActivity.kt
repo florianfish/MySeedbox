@@ -4,7 +4,6 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -23,18 +22,52 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.core.content.IntentCompat
+import androidx.fragment.app.FragmentActivity
 
-class MainActivity : ComponentActivity() {
+// FragmentActivity (et non ComponentActivity) : exigé par BiometricPrompt
+class MainActivity : FragmentActivity() {
     /** Torrent reçu par un lien magnet, un fichier ouvert ou un partage */
     private var incoming by mutableStateOf<Incoming?>(null)
+    private lateinit var lock: AppLock
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         val settings = Settings(this)
+        lock = AppLock(this)
         if (savedInstanceState == null) incoming = intent.toIncoming()
-        setContent { AppTheme { App(settings, incoming, onIncomingHandled = { incoming = null }) } }
+        setContent {
+            AppTheme {
+                // L'appli reste composée sous l'écran de verrouillage : son état et les résultats
+                // d'un sélecteur de fichier ne sont pas perdus, mais elle est masquée et inaccessible.
+                Box(Modifier.fillMaxSize()) {
+                    Box(if (lock.locked) Modifier.clearAndSetSemantics {} else Modifier) {
+                        App(settings, lock, incoming, onIncomingHandled = { incoming = null })
+                    }
+                    if (lock.locked) LockScreen(lock.error, onUnlock = { lock.prompt(this@MainActivity) })
+                }
+            }
+        }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        lock.onStart()
+        // Pas d'aperçu de l'appli dans les applis récentes quand le verrou est actif
+        if (Build.VERSION.SDK_INT >= 33) setRecentsScreenshotEnabled(!lock.active)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        lock.refresh()
+        lock.autoPrompt(this)
+    }
+
+    override fun onStop() {
+        super.onStop()
+        lock.onStop(isChangingConfigurations)
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -83,7 +116,7 @@ private enum class Tab(val label: String, val icon: ImageVector) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun App(settings: Settings, incoming: Incoming?, onIncomingHandled: () -> Unit) {
+private fun App(settings: Settings, lock: AppLock, incoming: Incoming?, onIncomingHandled: () -> Unit) {
     var configs by remember { mutableStateOf(settings.all()) }
     var tab by rememberSaveable { mutableStateOf(Tab.TORRENTS) }
     // Premier lancement : rien de réglé, on ouvre directement les réglages
@@ -159,6 +192,7 @@ private fun App(settings: Settings, incoming: Incoming?, onIncomingHandled: () -
             } else if (showSettings) {
                 SettingsScreen(
                     configs,
+                    lock,
                     onSave = { s, c ->
                         settings.set(s, c)
                         configs = settings.all()

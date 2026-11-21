@@ -32,6 +32,7 @@ import java.io.IOException
 @Composable
 fun SettingsScreen(
     configs: Map<Service, ServiceConfig>,
+    lock: AppLock,
     onSave: (Service, ServiceConfig) -> Unit,
     onImport: (Map<Service, ServiceConfig>) -> Unit,
 ) {
@@ -49,6 +50,7 @@ fun SettingsScreen(
             // key : l'état mémorisé (replié / déplié) reste attaché à son service
             key(s) { ServiceForm(s, configs[s] ?: ServiceConfig(), onSave) }
         }
+        LockSection(lock)
         BackupSection(configs, onImport)
         Text(
             "MySeedbox ${BuildConfig.VERSION_NAME}",
