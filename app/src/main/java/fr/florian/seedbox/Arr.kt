@@ -30,6 +30,19 @@ data class CalendarItem(val date: LocalDate, val service: Service, val title: St
 
 data class Indexer(val name: String, val enabled: Boolean, val failing: Boolean)
 
+/** Entrée du journal d'un *arr ; level en minuscules : « fatal », « error », « warn », « info »… */
+data class LogEntry(
+    val id: Int,
+    val time: Instant?,
+    val level: String,
+    val logger: String?,
+    val message: String,
+    val exception: String?,
+    val exceptionType: String?,
+)
+
+class LogPage(val entries: List<LogEntry>, val total: Int)
+
 /** Un import de l'historique : un film, ou un épisode */
 data class ImportEvent(
     /** « S01E02 · Titre » (Sonarr) */
@@ -276,6 +289,30 @@ class Arr(val service: Service, cfg: ServiceConfig) {
         return JSONArray(get("/indexer")).objects().map {
             Indexer(it.optString("name"), it.optBoolean("enable"), it.optInt("id") in failing)
         }
+    }
+
+    /**
+     * Journaux, du plus récent au plus ancien : les [count] premières entrées au niveau [level] ou plus grave
+     * (« error » inclut « fatal », « warn » inclut les erreurs…). `level` est le filtre des versions actuelles,
+     * filterKey / filterValue celui des plus anciennes ; chacune ignore l'autre.
+     */
+    fun logs(level: String, count: Int): LogPage {
+        val o = JSONObject(get("/log?page=1&pageSize=$count&sortKey=time&sortDirection=descending&level=$level&filterKey=level&filterValue=$level"))
+        val records = o.optJSONArray("records") ?: JSONArray()
+        return LogPage(
+            entries = records.objects().map {
+                LogEntry(
+                    id = it.optInt("id"),
+                    time = it.text("time")?.toInstant(),
+                    level = it.optString("level").lowercase(),
+                    logger = it.text("logger"),
+                    message = it.optString("message"),
+                    exception = it.text("exception"),
+                    exceptionType = it.text("exceptionType"),
+                )
+            },
+            total = o.optInt("totalRecords", records.length()),
+        )
     }
 
     private fun queueState(tracked: String, status: String) = when (tracked) {

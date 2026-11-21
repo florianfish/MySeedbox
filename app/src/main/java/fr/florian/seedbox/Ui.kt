@@ -41,11 +41,15 @@ class Loader<T>(private val scope: CoroutineScope, private val fetch: suspend ()
     /** Rafraîchissement demandé par l'utilisateur (indicateur de « tirer pour actualiser ») */
     var manualRefresh by mutableStateOf(false)
         private set
+    /** Un chargement est en cours (premier, manuel ou périodique) */
+    var loading by mutableStateOf(false)
+        private set
     private var job: Job? = null
 
     fun refresh(manual: Boolean = false) {
         if (manual) manualRefresh = true
         if (job?.isActive == true) return
+        loading = true
         job = scope.launch {
             try {
                 data = withContext(Dispatchers.IO) { fetch() }
@@ -56,6 +60,7 @@ class Loader<T>(private val scope: CoroutineScope, private val fetch: suspend ()
                 error = e.friendly()
             } finally {
                 manualRefresh = false
+                loading = false
             }
         }
     }

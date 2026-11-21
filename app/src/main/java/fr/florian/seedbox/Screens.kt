@@ -406,8 +406,9 @@ private fun statusOf(service: Service, cfg: ServiceConfig): ServiceStatus = try 
     ServiceStatus(service, error = e.friendly())
 }
 
+/** [onOpen] : écran dédié de Prowlarr, journaux de Radarr / Sonarr */
 @Composable
-fun StatusScreen(configs: Map<Service, ServiceConfig>, onOpenSettings: () -> Unit, onOpenProwlarr: () -> Unit) {
+fun StatusScreen(configs: Map<Service, ServiceConfig>, onOpenSettings: () -> Unit, onOpen: (Service) -> Unit) {
     val configured = remember(configs) { configs.filterValues { it.configured } }
     if (configured.isEmpty()) return NotConfigured("Aucun service", onOpenSettings)
     val loader = rememberLoader(configured) {
@@ -420,8 +421,8 @@ fun StatusScreen(configs: Map<Service, ServiceConfig>, onOpenSettings: () -> Uni
             .groupBy { it.free to it.total }.values
             .map { same -> same.first().copy(path = same.joinToString(" · ") { it.path }) }
         if (disks.isNotEmpty()) item { DisksCard(disks) }
-        items(statuses, key = { it.service.name }) {
-            StatusCard(it, showFreeSpace = disks.isEmpty(), onOpen = onOpenProwlarr.takeIf { _ -> it.service == Service.PROWLARR })
+        items(statuses, key = { it.service.name }) { st ->
+            StatusCard(st, showFreeSpace = disks.isEmpty(), onOpen = if (st.service == Service.QBIT) null else ({ onOpen(st.service) }))
         }
     }
 }
@@ -469,7 +470,7 @@ private fun StatusCard(s: ServiceStatus, showFreeSpace: Boolean, onOpen: (() -> 
         else -> 0
     }
     val c = MaterialTheme.colorScheme
-    // Prowlarr : la carte ouvre son écran dédié
+    // Prowlarr : la carte ouvre son écran dédié ; Radarr / Sonarr : leurs journaux
     val modifier = Modifier.fillMaxWidth()
     val body: @Composable ColumnScope.() -> Unit = {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -505,7 +506,7 @@ private fun StatusCard(s: ServiceStatus, showFreeSpace: Boolean, onOpen: (() -> 
             }
             if (onOpen != null) {
                 Text(
-                    "Indexeurs, statistiques et historique ›",
+                    if (s.service == Service.PROWLARR) "Indexeurs, statistiques et journaux ›" else "Journaux ›",
                     Modifier.padding(top = 4.dp),
                     style = MaterialTheme.typography.labelLarge,
                     color = c.primary,
