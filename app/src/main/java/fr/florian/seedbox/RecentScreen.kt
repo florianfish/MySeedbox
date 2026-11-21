@@ -213,7 +213,7 @@ private fun ago(i: Instant): String {
 }
 
 /** « aujourd'hui à 22:14 », « hier à 08:03 », « le jeudi 12 novembre à 21:40 » */
-private fun dateTime(i: Instant): String {
+internal fun dateTime(i: Instant): String {
     val z = i.atZone(ZoneId.systemDefault())
     val day = when (ChronoUnit.DAYS.between(z.toLocalDate(), LocalDate.now())) {
         0L -> "aujourd'hui"

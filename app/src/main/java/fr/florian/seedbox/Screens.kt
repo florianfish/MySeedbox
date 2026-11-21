@@ -407,7 +407,7 @@ private fun statusOf(service: Service, cfg: ServiceConfig): ServiceStatus = try 
 }
 
 @Composable
-fun StatusScreen(configs: Map<Service, ServiceConfig>, onOpenSettings: () -> Unit) {
+fun StatusScreen(configs: Map<Service, ServiceConfig>, onOpenSettings: () -> Unit, onOpenProwlarr: () -> Unit) {
     val configured = remember(configs) { configs.filterValues { it.configured } }
     if (configured.isEmpty()) return NotConfigured("Aucun service", onOpenSettings)
     val loader = rememberLoader(configured) {
@@ -420,7 +420,9 @@ fun StatusScreen(configs: Map<Service, ServiceConfig>, onOpenSettings: () -> Uni
             .groupBy { it.free to it.total }.values
             .map { same -> same.first().copy(path = same.joinToString(" · ") { it.path }) }
         if (disks.isNotEmpty()) item { DisksCard(disks) }
-        items(statuses, key = { it.service.name }) { StatusCard(it, showFreeSpace = disks.isEmpty()) }
+        items(statuses, key = { it.service.name }) {
+            StatusCard(it, showFreeSpace = disks.isEmpty(), onOpen = onOpenProwlarr.takeIf { _ -> it.service == Service.PROWLARR })
+        }
     }
 }
 
@@ -459,7 +461,7 @@ private fun DisksCard(disks: List<Disk>) {
 }
 
 @Composable
-private fun StatusCard(s: ServiceStatus, showFreeSpace: Boolean) {
+private fun StatusCard(s: ServiceStatus, showFreeSpace: Boolean, onOpen: (() -> Unit)? = null) {
     // 0 = tout va bien, 1 = avertissement / information (mise à jour…), 2 = erreur
     val level = when {
         s.error != null || s.health.any { it.isError } -> 2
@@ -467,7 +469,9 @@ private fun StatusCard(s: ServiceStatus, showFreeSpace: Boolean) {
         else -> 0
     }
     val c = MaterialTheme.colorScheme
-    Card(Modifier.fillMaxWidth()) {
+    // Prowlarr : la carte ouvre son écran dédié
+    val modifier = Modifier.fillMaxWidth()
+    val body: @Composable ColumnScope.() -> Unit = {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
@@ -499,6 +503,15 @@ private fun StatusCard(s: ServiceStatus, showFreeSpace: Boolean) {
                     Text(h.message, style = MaterialTheme.typography.bodySmall, color = if (h.isError) c.error else c.onSurfaceVariant)
                 }
             }
+            if (onOpen != null) {
+                Text(
+                    "Indexeurs, statistiques et historique ›",
+                    Modifier.padding(top = 4.dp),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = c.primary,
+                )
+            }
         }
     }
+    if (onOpen != null) Card(onClick = onOpen, modifier = modifier, content = body) else Card(modifier, content = body)
 }
