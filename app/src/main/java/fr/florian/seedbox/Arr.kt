@@ -62,6 +62,9 @@ data class ImportEvent(
     val date: Instant?,
 )
 
+/** Page brute de l'historique des imports : les enregistrements et le nombre total */
+class ImportsPage(val records: List<JSONObject>, val total: Int)
+
 /** Film ou série importé récemment (une carte par série, avec ses derniers épisodes) */
 data class RecentItem(
     val service: Service,
@@ -78,6 +81,10 @@ data class RecentItem(
     val events: List<ImportEvent> = emptyList(),
     /** Radarr : taille du film sur le disque, si l'historique ne la donne pas */
     val sizeOnDisk: Long? = null,
+    /** Genres, en français */
+    val genres: List<String> = emptyList(),
+    /** Année de sortie du film, ou de début de la série */
+    val year: Int? = null,
 ) {
     /** Meilleure résolution importée : « 4K », « 1080p » */
     val resolution: String? get() = events.maxOfOrNull { it.resolution }?.takeIf { it > 0 }?.let(::resolutionLabel)
@@ -173,21 +180,28 @@ class Arr(val service: Service, cfg: ServiceConfig) {
     }
 
     /**
-     * Derniers imports (historique, eventType 3 = downloadFolderImported), du plus récent au plus ancien.
+     * Une page de l'historique des imports (eventType 3 = downloadFolderImported), du plus récent au plus ancien,
+     * avec le film ou la série et l'épisode de chaque enregistrement.
+     */
+    fun importsPage(page: Int, pageSize: Int): ImportsPage {
+        val include = if (service == Service.SONARR) "includeSeries=true&includeEpisode=true" else "includeMovie=true"
+        val o = JSONObject(get("/history?page=$page&pageSize=$pageSize&sortKey=date&sortDirection=descending&eventType=3&$include"))
+        return ImportsPage(o.optJSONArray("records")?.objects().orEmpty(), o.optInt("totalRecords"))
+    }
+
+    /**
+     * Regroupe des enregistrements de [importsPage] (du plus récent au plus ancien).
      * Radarr : un film par carte. Sonarr : une carte par série, avec les épisodes arrivés.
      */
-    fun recent(limit: Int = 30): List<RecentItem> {
-        val include = if (service == Service.SONARR) "includeSeries=true&includeEpisode=true" else "includeMovie=true"
-        val records = JSONObject(get("/history?page=1&pageSize=150&sortKey=date&sortDirection=descending&eventType=3&$include"))
-            .optJSONArray("records") ?: JSONArray()
+    fun groupImports(records: List<JSONObject>): List<RecentItem> {
         val idKey = if (service == Service.SONARR) "seriesId" else "movieId"
         // LinkedHashMap : garde l'ordre du plus récent
         val groups = LinkedHashMap<Int, MutableList<JSONObject>>()
-        records.objects().forEach { o ->
+        records.forEach { o ->
             val id = o.optInt(idKey)
             if (id > 0) groups.getOrPut(id) { mutableListOf() }.add(o)
         }
-        return groups.entries.take(limit).mapNotNull { (id, list) ->
+        return groups.entries.mapNotNull { (id, list) ->
             val first = list.first()
             val date = first.optString("date").toInstant() ?: return@mapNotNull null
             val media = first.optJSONObject(if (service == Service.SONARR) "series" else "movie")
@@ -204,6 +218,8 @@ class Arr(val service: Service, cfg: ServiceConfig) {
                 overview = media?.text("overview"),
                 events = list.map { importEvent(it) },
                 sizeOnDisk = if (service == Service.RADARR) media?.optLong("sizeOnDisk")?.takeIf { it > 0 } else null,
+                genres = media?.optJSONArray("genres")?.strings()?.map { genreFr(it) }?.distinct().orEmpty(),
+                year = year,
             )
         }
     }

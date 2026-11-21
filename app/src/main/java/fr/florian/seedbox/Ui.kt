@@ -4,6 +4,8 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Settings
@@ -87,7 +89,12 @@ fun <T> rememberLoader(vararg keys: Any?, autoRefreshMs: Long = 0, fetch: suspen
 /** Liste avec « tirer pour actualiser », chargement et message d'erreur */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun <T> LoadedList(loader: Loader<T>, bottomSpace: Dp = 12.dp, content: LazyListScope.(T) -> Unit) {
+fun <T> LoadedList(
+    loader: Loader<T>,
+    bottomSpace: Dp = 12.dp,
+    state: LazyListState = rememberLazyListState(),
+    content: LazyListScope.(T) -> Unit,
+) {
     PullToRefreshBox(
         isRefreshing = loader.manualRefresh,
         onRefresh = { loader.refresh(manual = true) },
@@ -95,6 +102,7 @@ fun <T> LoadedList(loader: Loader<T>, bottomSpace: Dp = 12.dp, content: LazyList
     ) {
         LazyColumn(
             Modifier.fillMaxSize(),
+            state = state,
             contentPadding = PaddingValues(start = 12.dp, top = 12.dp, end = 12.dp, bottom = bottomSpace),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
