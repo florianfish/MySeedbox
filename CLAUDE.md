@@ -2,7 +2,7 @@
 
 ## Project
 
-MySeedbox: Android app (Kotlin, Jetpack Compose, Material 3) to monitor and control a seedbox.fr seedbox: qBittorrent, Radarr, Sonarr, Prowlarr. Requests are handled by Jellyseerr, so the app does not duplicate search/add. UI strings and code comments are in French — keep it that way.
+MySeedbox: Android app (Kotlin, Jetpack Compose, Material 3) to monitor and control any seedbox (host-agnostic): qBittorrent, Radarr, Sonarr, Prowlarr. Requests are handled by Jellyseerr, so the app does not duplicate search/add. UI strings and code comments are in French — keep it that way.
 
 ## Build
 

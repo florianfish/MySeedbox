@@ -118,7 +118,7 @@ fun Throwable.friendly(): String = when (this) {
     }
 }
 
-/** « cluster1k.seedbox.fr:45338/ » → « https://cluster1k.seedbox.fr:45338 » */
+/** « ma-seedbox.exemple.com:8080/ » → « https://ma-seedbox.exemple.com:8080 » */
 fun String.asBaseUrl(): String {
     val s = trim().trimEnd('/')
     return if (s.startsWith("http://") || s.startsWith("https://")) s else "https://$s"

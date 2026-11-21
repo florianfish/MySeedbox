@@ -128,7 +128,7 @@ private fun ServiceForm(service: Service, saved: ServiceConfig, onSave: (Service
                 url, { url = it; result = null },
                 Modifier.fillMaxWidth(),
                 label = { Text("Adresse") },
-                placeholder = { Text("https://cluster1k.seedbox.fr:port") },
+                placeholder = { Text("https://ma-seedbox.exemple.com:port") },
                 isError = url.trim().startsWith("http://", ignoreCase = true),
                 supportingText = if (url.trim().startsWith("http://", ignoreCase = true)) {
                     { Text("HTTP non chiffré : clé et mot de passe passeraient en clair. Utiliser https://") }
