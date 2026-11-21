@@ -52,22 +52,15 @@ class MainActivity : FragmentActivity() {
         }
     }
 
-    override fun onStart() {
-        super.onStart()
-        lock.onStart()
-        // Pas d'aperçu de l'appli dans les applis récentes quand le verrou est actif
-        if (Build.VERSION.SDK_INT >= 33) setRecentsScreenshotEnabled(!lock.active)
-    }
-
     override fun onResume() {
         super.onResume()
         lock.refresh()
         lock.autoPrompt(this)
     }
 
-    override fun onStop() {
-        super.onStop()
-        lock.onStop(isChangingConfigurations)
+    override fun onDestroy() {
+        lock.onDestroy(isFinishing, isChangingConfigurations)
+        super.onDestroy()
     }
 
     override fun onNewIntent(intent: Intent) {

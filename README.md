@@ -14,7 +14,7 @@ Les demandes de films et séries restent dans un outil dédié comme Jellyseerr 
 - **Calendrier** : épisodes et films attendus sur 30 jours, groupés par jour, avec une coche quand le fichier est déjà là.
 - **État** : version et santé de chaque service, espace disque (Radarr/Sonarr), espace libre et ratio global (qBittorrent), indexeurs actifs ou en échec (Prowlarr).
 - **Réglages** : adresse, clé API (ou identifiants qBittorrent) et bouton « Tester » pour chaque service. Les secrets sont chiffrés avec une clé du Keystore Android et ne sont jamais dans le code.
-- **Verrouillage** (activé par défaut) : empreinte, visage ou code de l'appareil pour ouvrir l'appli, redemandé après un délai réglable en arrière-plan (immédiatement, 1, 5 ou 15 minutes). Sans verrouillage d'écran sur le téléphone, il est inactif.
+- **Verrouillage** (activé par défaut) : empreinte, visage ou code de l'appareil à chaque ouverture de l'appli. Une fois déverrouillée, elle le reste tant qu'elle est ouverte, même réduite ; il faut la fermer complètement pour qu'il soit redemandé. Sans verrouillage d'écran sur le téléphone, il est inactif.
 - **Sauvegarde** : export de toute la configuration dans un fichier chiffré par un mot de passe (AES-256-GCM, clé dérivée par PBKDF2), à enregistrer sur Google Drive ou ailleurs, puis import sur un autre téléphone. Le mot de passe n'est enregistré nulle part : sans lui, la sauvegarde est inutilisable.
 
 Chaque service est facultatif : seuls les onglets des services configurés affichent des données, et un service en panne n'empêche pas les autres de s'afficher. Tirer vers le bas pour actualiser un écran.

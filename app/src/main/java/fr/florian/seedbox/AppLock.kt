@@ -1,7 +1,6 @@
 package fr.florian.seedbox
 
 import android.content.Context
-import android.os.SystemClock
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricManager.Authenticators.BIOMETRIC_WEAK
 import androidx.biometric.BiometricManager.Authenticators.DEVICE_CREDENTIAL
@@ -20,6 +19,7 @@ import androidx.fragment.app.FragmentActivity
 
 /**
  * Verrouillage de l'appli par empreinte / visage, avec repli sur le code de l'appareil.
+ * Demandé à chaque lancement de l'appli, pas quand elle revient d'arrière-plan.
  * Actif par défaut ; sans verrouillage d'écran configuré sur le téléphone, il est ignoré
  * (sinon l'appli resterait inaccessible).
  */
@@ -31,34 +31,24 @@ class AppLock(context: Context) {
         get() = prefs.getBoolean("lock.enabled", true)
         set(v) = prefs.edit().putBoolean("lock.enabled", v).apply()
 
-    /** Délai en arrière-plan avant de redemander le déverrouillage, en secondes */
-    var delay: Int
-        get() = prefs.getInt("lock.delay", DEFAULT_DELAY)
-        set(v) = prefs.edit().putInt("lock.delay", v).apply()
-
     /** Empreinte, visage ou code / schéma / mot de passe de l'appareil disponible */
     val available get() = BiometricManager.from(app).canAuthenticate(AUTHENTICATORS) == BiometricManager.BIOMETRIC_SUCCESS
 
     val active get() = enabled && available
 
-    /** Verrouillé (état du processus : survit à une rotation, reverrouille après sa mort) */
+    /** Verrouillé (état du processus : reste déverrouillé tant que l'appli est ouverte, même réduite) */
     val locked get() = state.locked
 
     /** Erreur du dernier essai (hors annulation), affichée sur l'écran de verrouillage */
     val error get() = state.error
 
-    /** L'activité passe en arrière-plan (hors rotation et hors invite système de déverrouillage) */
-    fun onStop(changingConfigurations: Boolean) {
-        if (!changingConfigurations && !state.authenticating) state.backgroundSince = SystemClock.elapsedRealtime()
-    }
-
-    fun onStart() {
-        // Retour de l'invite (code de l'appareil sur Android < 11) ou invite abandonnée en quittant l'appli
-        state.authenticating = false
-        if (state.backgroundSince == 0L) return
-        val away = (SystemClock.elapsedRealtime() - state.backgroundSince) / 1000
-        state.backgroundSince = 0L
-        if (active && away >= delay) lock()
+    /**
+     * Appelé à la destruction de l'activité. Fermée pour de bon (retour arrière, balayée des applis
+     * récentes…) et non recréée par une rotation : le prochain lancement redemande le déverrouillage.
+     * Si le système tue le processus, le nouveau démarre verrouillé de toute façon.
+     */
+    fun onDestroy(finishing: Boolean, changingConfigurations: Boolean) {
+        if (finishing && !changingConfigurations && active) lock()
     }
 
     /** Verrou désactivé dans les réglages ou plus de verrouillage d'écran : on libère l'appli */
@@ -82,16 +72,13 @@ class AppLock(context: Context) {
         if (!state.locked) return
         if (!active) { refresh(); return }
         state.prompted = true
-        state.authenticating = true
         state.error = null
         val callback = object : BiometricPrompt.AuthenticationCallback() {
             override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
-                state.authenticating = false
                 state.locked = false
             }
 
             override fun onAuthenticationError(code: Int, message: CharSequence) {
-                state.authenticating = false
                 val cancelled = code == BiometricPrompt.ERROR_USER_CANCELED ||
                     code == BiometricPrompt.ERROR_CANCELED ||
                     code == BiometricPrompt.ERROR_NEGATIVE_BUTTON
@@ -110,8 +97,6 @@ class AppLock(context: Context) {
     private class State(lockedAtStart: Boolean) {
         var locked by mutableStateOf(lockedAtStart)
         var error by mutableStateOf<String?>(null)
-        var backgroundSince = 0L
-        var authenticating = false
         var prompted = false
     }
 
@@ -123,10 +108,6 @@ class AppLock(context: Context) {
 
         // BIOMETRIC_WEAK + DEVICE_CREDENTIAL : la seule combinaison acceptée d'Android 8 à 14
         private const val AUTHENTICATORS = BIOMETRIC_WEAK or DEVICE_CREDENTIAL
-        const val DEFAULT_DELAY = 60
-
-        /** Choix proposés dans les réglages : délai en secondes → libellé */
-        val DELAYS = listOf(0 to "Immédiatement", 60 to "1 minute", 300 to "5 minutes", 900 to "15 minutes")
     }
 }
 
@@ -158,11 +139,9 @@ fun LockScreen(error: String?, onUnlock: () -> Unit) {
 }
 
 /** Section « Verrouillage » des réglages */
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun LockSection(lock: AppLock) {
     var enabled by remember { mutableStateOf(lock.enabled) }
-    var delay by remember { mutableIntStateOf(lock.delay) }
     val available = remember { lock.available }
 
     Card(Modifier.fillMaxWidth()) {
@@ -171,7 +150,7 @@ fun LockSection(lock: AppLock) {
                 Column(Modifier.weight(1f)) {
                     Text("Verrouillage", style = MaterialTheme.typography.titleMedium)
                     Text(
-                        if (available) "Empreinte, visage ou code de l'appareil pour ouvrir l'appli"
+                        if (available) "Empreinte, visage ou code de l'appareil à chaque ouverture de l'appli (pas en revenant d'arrière-plan)"
                         else "Aucun verrouillage d'écran configuré sur le téléphone : le verrou est inactif",
                         style = MaterialTheme.typography.bodySmall,
                         color = if (available) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error,
@@ -185,18 +164,6 @@ fun LockSection(lock: AppLock) {
                         lock.refresh()
                     },
                 )
-            }
-            if (enabled && available) {
-                Text("Redemander après", style = MaterialTheme.typography.labelMedium)
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    AppLock.DELAYS.forEach { (seconds, label) ->
-                        FilterChip(
-                            selected = delay == seconds,
-                            onClick = { delay = seconds; lock.delay = seconds },
-                            label = { Text(label) },
-                        )
-                    }
-                }
             }
         }
     }
