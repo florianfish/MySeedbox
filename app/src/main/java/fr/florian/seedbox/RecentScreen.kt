@@ -9,6 +9,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Search
@@ -158,6 +159,8 @@ fun RecentScreen(configs: Map<Service, ServiceConfig>, onOpenSettings: () -> Uni
     var language by rememberSaveable { mutableStateOf<String?>(null) }
     var genre by rememberSaveable { mutableStateOf<String?>(null) }
     var year by rememberSaveable { mutableStateOf<String?>(null) }
+    var sort by rememberSaveable { mutableStateOf(RecentSort.IMPORT) }
+    var reverse by rememberSaveable { mutableStateOf(false) }
     val listState = rememberLazyListState()
     val focus = LocalFocusManager.current
 
@@ -185,20 +188,23 @@ fun RecentScreen(configs: Map<Service, ServiceConfig>, onOpenSettings: () -> Uni
         val all = d.items.filter { it.service == kind.service }
         item(key = "filters") {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(
-                    query,
-                    { query = it },
-                    Modifier.fillMaxWidth(),
-                    placeholder = { Text("Rechercher un titre") },
-                    leadingIcon = { Icon(Icons.Filled.Search, null) },
-                    trailingIcon = {
-                        if (query.isNotEmpty()) IconButton(onClick = { query = "" }) { Icon(Icons.Filled.Clear, "Effacer") }
-                    },
-                    singleLine = true,
-                    shape = MaterialTheme.shapes.extraLarge,
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                    keyboardActions = KeyboardActions(onSearch = { focus.clearFocus() }),
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedTextField(
+                        query,
+                        { query = it },
+                        Modifier.weight(1f),
+                        placeholder = { Text("Rechercher un titre") },
+                        leadingIcon = { Icon(Icons.Filled.Search, null) },
+                        trailingIcon = {
+                            if (query.isNotEmpty()) IconButton(onClick = { query = "" }) { Icon(Icons.Filled.Clear, "Effacer") }
+                        },
+                        singleLine = true,
+                        shape = MaterialTheme.shapes.extraLarge,
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                        keyboardActions = KeyboardActions(onSearch = { focus.clearFocus() }),
+                    )
+                    SortMenu(sort, reverse) { s, r -> sort = s; reverse = r }
+                }
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (kinds.size > 1) kinds.forEach { k ->
                         FilterChip(
@@ -260,7 +266,7 @@ fun RecentScreen(configs: Map<Service, ServiceConfig>, onOpenSettings: () -> Uni
                 (genre == null || genre in r.genres) &&
                 (year == null || r.year?.toString() == year) &&
                 (words.isEmpty() || normalize(r.title).let { n -> words.all { it in n } })
-        }
+        }.sortedWith(sort.comparator(reverse))
         val st = d.status[kind.service]
         if (shown.isEmpty() && st?.complete != false) {
             item { Empty(if (all.isEmpty()) kind.empty else "Aucun résultat avec ces filtres") }
@@ -279,6 +285,56 @@ fun RecentScreen(configs: Map<Service, ServiceConfig>, onOpenSettings: () -> Uni
 
     val open = openKey?.let { k -> loader.data?.items?.firstOrNull { it.poster.key == k } }
     if (open != null) RecentSheet(open, onDismiss = { openKey = null })
+}
+
+/** Tri de la grille ; [desc] : sens par défaut (le plus récent, le plus gros…) */
+private enum class RecentSort(val label: String, val desc: Boolean, val key: (RecentItem) -> Comparable<*>?) {
+    IMPORT("Date d'import", true, { it.date }),
+    SIZE("Taille", true, { it.size }),
+    TITLE("Titre", false, { normalize(it.title) }),
+    YEAR("Année de sortie", true, { it.year }),
+    ;
+
+    /** Valeurs absentes (taille ou année inconnue) toujours à la fin, puis du plus récent import au plus ancien */
+    fun comparator(reverse: Boolean): Comparator<RecentItem> {
+        val down = desc != reverse
+        return Comparator<RecentItem> { a, b ->
+            @Suppress("UNCHECKED_CAST")
+            val x = key(a) as Comparable<Any>?
+            val y = key(b)
+            when {
+                x == null && y == null -> 0
+                x == null -> 1
+                y == null -> -1
+                down -> -x.compareTo(y)
+                else -> x.compareTo(y)
+            }
+        }.thenByDescending { it.date }
+    }
+}
+
+/** Menu de tri, avec « Ordre inverse » */
+@Composable
+private fun SortMenu(sort: RecentSort, reverse: Boolean, onSort: (RecentSort, Boolean) -> Unit) {
+    var menu by remember { mutableStateOf(false) }
+    Box {
+        IconButton(onClick = { menu = true }) { Icon(AppIcons.Sort, "Trier : ${sort.label}") }
+        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+            RecentSort.entries.forEach { s ->
+                DropdownMenuItem(
+                    text = { Text(s.label) },
+                    leadingIcon = { if (s == sort) Icon(Icons.Filled.Check, null) else Spacer(Modifier.size(24.dp)) },
+                    onClick = { menu = false; onSort(s, reverse) },
+                )
+            }
+            HorizontalDivider()
+            DropdownMenuItem(
+                text = { Text("Ordre inverse") },
+                leadingIcon = { Checkbox(checked = reverse, onCheckedChange = null) },
+                onClick = { menu = false; onSort(sort, !reverse) },
+            )
+        }
+    }
 }
 
 /** Bas de la grille : suite en chargement, erreur avec « Réessayer », ou début de l'historique atteint */
