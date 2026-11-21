@@ -2,17 +2,30 @@ package fr.florian.seedbox
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import org.json.JSONObject
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -29,6 +42,104 @@ private enum class RecentKind(val label: String, val service: Service, val empty
 
 private const val COLUMNS = 3
 
+/** Enregistrements d'historique demandés à chaque page */
+private const val PAGE_SIZE = 100
+
+/** Historique des imports d'un service, chargé page par page (un seul chargement à la fois, grâce au Loader) */
+private class ImportFeed(val arr: Arr) {
+    private var records: List<JSONObject> = emptyList()
+    private val ids = HashSet<Int>()
+    private var pages = 0
+    private var total = 0
+    var items: List<RecentItem> = emptyList()
+        private set
+    var error: String? = null
+        private set
+
+    /** Tout l'historique est chargé */
+    val complete get() = pages > 0 && pages * PAGE_SIZE >= total
+
+    /**
+     * Première page : les nouveaux imports s'ajoutent en tête sans perdre les pages déjà chargées.
+     * Sans recoupement avec ce qu'on a (trop de nouveautés d'un coup), on repart de zéro.
+     */
+    fun refresh() = attempt {
+        val p = arr.importsPage(1, PAGE_SIZE)
+        val fresh = p.records.filter { it.optInt("id") !in ids }
+        if (pages == 0 || fresh.size == p.records.size) {
+            records = emptyList()
+            ids.clear()
+            pages = 1
+            append(p.records)
+        } else {
+            records = fresh + records
+            fresh.forEach { ids += it.optInt("id") }
+        }
+        total = p.total
+    }
+
+    /** Page suivante. Les nouveautés arrivées entre-temps décalent les pages : les doublons sont écartés. */
+    fun more() = attempt {
+        if (complete) return@attempt
+        val p = arr.importsPage(pages + 1, PAGE_SIZE)
+        append(p.records)
+        pages++
+        total = if (p.records.isEmpty()) pages * PAGE_SIZE else p.total
+    }
+
+    private fun append(list: List<JSONObject>) {
+        records = records + list.filter { ids.add(it.optInt("id")) }
+    }
+
+    /** L'erreur reste affichée à côté de ce qui est déjà chargé */
+    private fun attempt(block: () -> Unit) {
+        error = try {
+            block()
+            null
+        } catch (e: Exception) {
+            "${arr.service.label} : ${e.friendly()}"
+        }
+        items = arr.groupImports(records)
+    }
+
+    fun status() = FeedStatus(
+        complete,
+        error,
+        oldest = records.lastOrNull()?.optString("date")?.let { runCatching { Instant.parse(it) }.getOrNull() },
+    )
+}
+
+private class FeedStatus(val complete: Boolean, val error: String?, val oldest: Instant?)
+
+private class RecentData(val items: List<RecentItem>, val status: Map<Service, FeedStatus>)
+
+/** Historiques de Radarr et Sonarr : un rafraîchissement recharge la tête de chacun, [requestMore] la suite d'un seul */
+private class RecentFeeds(arrs: List<Arr>) {
+    private val feeds = arrs.map { ImportFeed(it) }
+
+    @Volatile
+    private var more: Service? = null
+
+    fun requestMore(s: Service) {
+        more = s
+    }
+
+    suspend fun fetch(): RecentData = coroutineScope {
+        val m = more
+        more = null
+        feeds.map { f ->
+            async(Dispatchers.IO) {
+                when {
+                    m == null -> f.refresh()
+                    f.arr.service == m -> f.more()
+                }
+            }
+        }.awaitAll()
+        RecentData(feeds.flatMap { it.items }, feeds.associate { it.arr.service to it.status() })
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun RecentScreen(configs: Map<Service, ServiceConfig>, onOpenSettings: () -> Unit) {
     val arrs = rememberArrs(configs, Service.RADARR, Service.SONARR)
@@ -36,21 +147,112 @@ fun RecentScreen(configs: Map<Service, ServiceConfig>, onOpenSettings: () -> Uni
     val kinds = RecentKind.entries.filter { k -> arrs.any { it.service == k.service } }
     var selected by rememberSaveable { mutableStateOf(kinds.first()) }
     val kind = if (selected in kinds) selected else kinds.first()
-    val loader = rememberLoader(arrs) { gather(arrs) { it.recent() } }
+    val feeds = remember(arrs) { RecentFeeds(arrs) }
+    val loader = rememberLoader(feeds) { feeds.fetch() }
     // Fiche ouverte : on garde la clé (survit à la rotation et suit les actualisations)
     var openKey by rememberSaveable { mutableStateOf<String?>(null) }
+    // Filtres (null = tous)
+    var query by rememberSaveable { mutableStateOf("") }
+    var resolution by rememberSaveable { mutableStateOf<String?>(null) }
+    var language by rememberSaveable { mutableStateOf<String?>(null) }
+    var genre by rememberSaveable { mutableStateOf<String?>(null) }
+    val listState = rememberLazyListState()
+    val focus = LocalFocusManager.current
 
-    LoadedList(loader) { g ->
-        g.errors.forEach { item { ErrorCard(it) } }
-        if (kinds.size > 1) item {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                kinds.forEach { k ->
-                    FilterChip(selected = kind == k, onClick = { selected = k }, label = { Text(k.label) })
+    fun loadMore() {
+        // Un chargement en cours ignorerait la demande, qui resterait en attente pour le prochain rafraîchissement
+        if (loader.loading) return
+        feeds.requestMore(kind.service)
+        loader.refresh()
+    }
+
+    // Suite chargée à l'approche du bas de la grille ; se répète tant que les filtres laissent peu de cartes
+    val status = loader.data?.status?.get(kind.service)
+    val nearEnd by remember {
+        derivedStateOf {
+            val info = listState.layoutInfo
+            val last = info.visibleItemsInfo.lastOrNull()?.index ?: return@derivedStateOf false
+            last >= info.totalItemsCount - 1 - COLUMNS
+        }
+    }
+    LaunchedEffect(nearEnd, loader.data, loader.loading, kind) {
+        if (nearEnd && status != null && !status.complete && status.error == null && !loader.loading) loadMore()
+    }
+
+    LoadedList(loader, state = listState) { d ->
+        val all = d.items.filter { it.service == kind.service }
+        item(key = "filters") {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    query,
+                    { query = it },
+                    Modifier.fillMaxWidth(),
+                    placeholder = { Text("Rechercher un titre") },
+                    leadingIcon = { Icon(Icons.Filled.Search, null) },
+                    trailingIcon = {
+                        if (query.isNotEmpty()) IconButton(onClick = { query = "" }) { Icon(Icons.Filled.Clear, "Effacer") }
+                    },
+                    singleLine = true,
+                    shape = MaterialTheme.shapes.extraLarge,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                    keyboardActions = KeyboardActions(onSearch = { focus.clearFocus() }),
+                )
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (kinds.size > 1) kinds.forEach { k ->
+                        FilterChip(
+                            selected = kind == k,
+                            onClick = {
+                                // Résolutions, langues et genres ne sont pas les mêmes côté films et côté séries
+                                if (k != kind) {
+                                    resolution = null
+                                    language = null
+                                    genre = null
+                                }
+                                selected = k
+                            },
+                            label = { Text(k.label) },
+                        )
+                    }
+                    val resolutions = all.mapNotNull { it.resolution }.distinct().sortedByDescending(::resolutionRank)
+                    if (resolutions.isNotEmpty() || resolution != null) {
+                        ChoiceChip(
+                            "Résolution", AppIcons.Tv, resolution, resolutions, none = null,
+                            count = { v -> all.count { it.resolution == v } },
+                            onPick = { resolution = it },
+                        )
+                    }
+                    val languages = all.flatMap(::languagesOf).distinct().sorted()
+                    if (languages.isNotEmpty() || language != null) {
+                        ChoiceChip(
+                            "Langue", AppIcons.Campaign, language, languages, none = null,
+                            count = { v -> all.count { v in languagesOf(it) } },
+                            onPick = { language = it },
+                        )
+                    }
+                    val genres = all.flatMap { it.genres }.distinct().sorted()
+                    if (genres.isNotEmpty() || genre != null) {
+                        ChoiceChip(
+                            "Genre", AppIcons.Label, genre, genres, none = null, all = "Tous",
+                            count = { v -> all.count { v in it.genres } },
+                            onPick = { genre = it },
+                        )
+                    }
                 }
             }
         }
-        val shown = g.items.filter { it.service == kind.service }
-        if (shown.isEmpty()) item { Empty(kind.empty) }
+        d.status.values.mapNotNull { it.error }.forEach { item { ErrorCard(it) } }
+
+        val words = normalize(query).split(' ').filter { it.isNotEmpty() }
+        val shown = all.filter { r ->
+            (resolution == null || r.resolution == resolution) &&
+                (language == null || language in languagesOf(r)) &&
+                (genre == null || genre in r.genres) &&
+                (words.isEmpty() || normalize(r.title).let { n -> words.all { it in n } })
+        }
+        val st = d.status[kind.service]
+        if (shown.isEmpty() && st?.complete != false) {
+            item { Empty(if (all.isEmpty()) kind.empty else "Aucun résultat avec ces filtres") }
+        }
         // Grille de 3 colonnes dans la liste (garde « tirer pour actualiser » de LoadedList)
         shown.chunked(COLUMNS).forEach { row ->
             item(key = row.first().poster.key) {
@@ -60,11 +262,39 @@ fun RecentScreen(configs: Map<Service, ServiceConfig>, onOpenSettings: () -> Uni
                 }
             }
         }
+        if (st != null && all.isNotEmpty()) item(key = "footer") { FeedFooter(st, ::loadMore) }
     }
 
     val open = openKey?.let { k -> loader.data?.items?.firstOrNull { it.poster.key == k } }
     if (open != null) RecentSheet(open, onDismiss = { openKey = null })
 }
+
+/** Bas de la grille : suite en chargement, erreur avec « Réessayer », ou début de l'historique atteint */
+@Composable
+private fun FeedFooter(st: FeedStatus, onRetry: () -> Unit) {
+    Column(
+        Modifier.fillMaxWidth().padding(vertical = 12.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        when {
+            st.error != null -> OutlinedButton(onClick = onRetry) { Text("Réessayer") }
+            !st.complete -> CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
+        }
+        val since = st.oldest?.atZone(ZoneId.systemDefault())?.toLocalDate()?.format(FULL_DATE) ?: return@Column
+        Text(
+            if (st.complete) "Début de l'historique : $since" else "Chargé jusqu'au $since",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+/** Langues importées, en français */
+private fun languagesOf(r: RecentItem) = r.languages.map { lang(it).second }
+
+/** « 4K » avant « 1080p » avant « 720p »… */
+private fun resolutionRank(label: String) = if (label == "4K") 2160 else label.removeSuffix("p").toIntOrNull() ?: 0
 
 @Composable
 private fun RecentCard(r: RecentItem, modifier: Modifier, onClick: () -> Unit) {
@@ -196,6 +426,7 @@ private fun langCodes(names: List<String>): String? = when {
     else -> names.joinToString("/") { lang(it).first }
 }
 
+private val FULL_DATE = DateTimeFormatter.ofPattern("d MMMM yyyy", Locale.FRENCH)
 private val SHORT_DATE = DateTimeFormatter.ofPattern("d MMM", Locale.FRENCH)
 private val LONG_DATE = DateTimeFormatter.ofPattern("EEEE d MMMM", Locale.FRENCH)
 private val TIME = DateTimeFormatter.ofPattern("HH:mm", Locale.FRENCH)

@@ -86,7 +86,7 @@ private class SortPref(context: Context) {
 }
 
 /** Minuscules, sans accents, ponctuation (points des noms de release…) remplacée par des espaces */
-private fun normalize(s: String): String =
+internal fun normalize(s: String): String =
     Normalizer.normalize(s, Normalizer.Form.NFD)
         .replace(Regex("\\p{M}+"), "")
         .lowercase(Locale.ROOT)
@@ -374,16 +374,17 @@ private fun SearchRow(
     }
 }
 
-/** Puce à liste déroulante : null = tous, "" = [none], sinon la valeur choisie */
+/** Puce à liste déroulante : null = tous ([all]), "" = [none] (proposé seulement s'il est donné), sinon la valeur choisie */
 @Composable
-private fun ChoiceChip(
+internal fun ChoiceChip(
     label: String,
     icon: ImageVector,
     value: String?,
     options: List<String>,
-    none: String,
+    none: String?,
     count: (String) -> Int,
     onPick: (String?) -> Unit,
+    all: String = "Toutes",
 ) {
     var menu by remember { mutableStateOf(false) }
     Box {
@@ -392,7 +393,7 @@ private fun ChoiceChip(
             onClick = { menu = true },
             label = {
                 Text(
-                    when (value) { null -> label; "" -> none; else -> value },
+                    when (value) { null -> label; "" -> none.orEmpty(); else -> value },
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.widthIn(max = 160.dp),
@@ -402,10 +403,10 @@ private fun ChoiceChip(
             trailingIcon = { Icon(AppIcons.ExpandMore, null, Modifier.size(18.dp)) },
         )
         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-            DropdownMenuItem(text = { Text("Toutes") }, onClick = { menu = false; onPick(null) })
-            (listOf("") + options).forEach { o ->
+            DropdownMenuItem(text = { Text(all) }, onClick = { menu = false; onPick(null) })
+            (if (none != null) listOf("") + options else options).forEach { o ->
                 DropdownMenuItem(
-                    text = { Text("${o.ifEmpty { none }} (${count(o)})") },
+                    text = { Text("${o.ifEmpty { none.orEmpty() }} (${count(o)})") },
                     leadingIcon = { if (o == value) Icon(Icons.Filled.Check, null) else Spacer(Modifier.size(24.dp)) },
                     onClick = { menu = false; onPick(o) },
                 )
