@@ -1,13 +1,13 @@
 package fr.florian.seedbox
 
 import android.content.Intent
+import android.graphics.Color
 import android.net.Uri
-import android.os.Build
 import android.os.Bundle
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
+import androidx.activity.SystemBarStyle
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -21,10 +21,13 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.core.content.IntentCompat
 import androidx.fragment.app.FragmentActivity
+
+/** Voile de la barre de navigation à 3 boutons (valeurs par défaut d'enableEdgeToEdge) */
+private val LIGHT_SCRIM = Color.argb(0xe6, 0xFF, 0xFF, 0xFF)
+private val DARK_SCRIM = Color.argb(0x80, 0x1b, 0x1b, 0x1b)
 
 // FragmentActivity (et non ComponentActivity) : exigé par BiometricPrompt
 class MainActivity : FragmentActivity() {
@@ -36,15 +39,24 @@ class MainActivity : FragmentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         val settings = Settings(this)
+        val appearance = Appearance(this)
         lock = AppLock(this)
         if (savedInstanceState == null) incoming = intent.toIncoming()
         setContent {
-            AppTheme {
+            val dark = appearance.isDark()
+            // Icônes des barres système lisibles quel que soit le thème choisi dans l'appli
+            LaunchedEffect(dark) {
+                enableEdgeToEdge(
+                    statusBarStyle = SystemBarStyle.auto(Color.TRANSPARENT, Color.TRANSPARENT) { dark },
+                    navigationBarStyle = SystemBarStyle.auto(LIGHT_SCRIM, DARK_SCRIM) { dark },
+                )
+            }
+            AppTheme(dark, appearance.dynamic) {
                 // L'appli reste composée sous l'écran de verrouillage : son état et les résultats
                 // d'un sélecteur de fichier ne sont pas perdus, mais elle est masquée et inaccessible.
                 Box(Modifier.fillMaxSize()) {
                     Box(if (lock.locked) Modifier.clearAndSetSemantics {} else Modifier) {
-                        App(settings, lock, incoming, onIncomingHandled = { incoming = null })
+                        App(settings, lock, appearance, incoming, onIncomingHandled = { incoming = null })
                     }
                     if (lock.locked) LockScreen(lock.error, onUnlock = { lock.prompt(this@MainActivity) })
                 }
@@ -87,18 +99,6 @@ private fun Intent.toIncoming(): Incoming? = when (action) {
     else -> null
 }
 
-@Composable
-private fun AppTheme(content: @Composable () -> Unit) {
-    val dark = isSystemInDarkTheme()
-    val context = LocalContext.current
-    val scheme = when {
-        Build.VERSION.SDK_INT >= 31 -> if (dark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-        dark -> darkColorScheme()
-        else -> lightColorScheme()
-    }
-    MaterialTheme(colorScheme = scheme, content = content)
-}
-
 private enum class Tab(val label: String, val icon: ImageVector) {
     TORRENTS("Torrents", AppIcons.Download),
     QUEUE("Imports", Icons.AutoMirrored.Filled.List),
@@ -109,7 +109,7 @@ private enum class Tab(val label: String, val icon: ImageVector) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun App(settings: Settings, lock: AppLock, incoming: Incoming?, onIncomingHandled: () -> Unit) {
+private fun App(settings: Settings, lock: AppLock, appearance: Appearance, incoming: Incoming?, onIncomingHandled: () -> Unit) {
     var configs by remember { mutableStateOf(settings.all()) }
     var tab by rememberSaveable { mutableStateOf(Tab.TORRENTS) }
     // Premier lancement : rien de réglé, on ouvre directement les réglages
@@ -186,6 +186,7 @@ private fun App(settings: Settings, lock: AppLock, incoming: Incoming?, onIncomi
                 SettingsScreen(
                     configs,
                     lock,
+                    appearance,
                     onSave = { s, c ->
                         settings.set(s, c)
                         configs = settings.all()
