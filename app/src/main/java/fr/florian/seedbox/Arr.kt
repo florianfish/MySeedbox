@@ -83,6 +83,8 @@ data class RecentItem(
     val sizeOnDisk: Long? = null,
     /** Genres, en français */
     val genres: List<String> = emptyList(),
+    /** Année de sortie du film, ou de début de la série */
+    val year: Int? = null,
 ) {
     /** Meilleure résolution importée : « 4K », « 1080p » */
     val resolution: String? get() = events.maxOfOrNull { it.resolution }?.takeIf { it > 0 }?.let(::resolutionLabel)
@@ -217,6 +219,7 @@ class Arr(val service: Service, cfg: ServiceConfig) {
                 events = list.map { importEvent(it) },
                 sizeOnDisk = if (service == Service.RADARR) media?.optLong("sizeOnDisk")?.takeIf { it > 0 } else null,
                 genres = media?.optJSONArray("genres")?.strings()?.map { genreFr(it) }?.distinct().orEmpty(),
+                year = year,
             )
         }
     }

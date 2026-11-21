@@ -10,6 +10,7 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -156,6 +157,7 @@ fun RecentScreen(configs: Map<Service, ServiceConfig>, onOpenSettings: () -> Uni
     var resolution by rememberSaveable { mutableStateOf<String?>(null) }
     var language by rememberSaveable { mutableStateOf<String?>(null) }
     var genre by rememberSaveable { mutableStateOf<String?>(null) }
+    var year by rememberSaveable { mutableStateOf<String?>(null) }
     val listState = rememberLazyListState()
     val focus = LocalFocusManager.current
 
@@ -207,6 +209,7 @@ fun RecentScreen(configs: Map<Service, ServiceConfig>, onOpenSettings: () -> Uni
                                     resolution = null
                                     language = null
                                     genre = null
+                                    year = null
                                 }
                                 selected = k
                             },
@@ -229,6 +232,14 @@ fun RecentScreen(configs: Map<Service, ServiceConfig>, onOpenSettings: () -> Uni
                             onPick = { language = it },
                         )
                     }
+                    val years = all.mapNotNull { it.year }.distinct().sortedDescending().map { it.toString() }
+                    if (years.isNotEmpty() || year != null) {
+                        ChoiceChip(
+                            "Année", Icons.Filled.DateRange, year, years, none = null,
+                            count = { v -> all.count { it.year?.toString() == v } },
+                            onPick = { year = it },
+                        )
+                    }
                     val genres = all.flatMap { it.genres }.distinct().sorted()
                     if (genres.isNotEmpty() || genre != null) {
                         ChoiceChip(
@@ -247,6 +258,7 @@ fun RecentScreen(configs: Map<Service, ServiceConfig>, onOpenSettings: () -> Uni
             (resolution == null || r.resolution == resolution) &&
                 (language == null || language in languagesOf(r)) &&
                 (genre == null || genre in r.genres) &&
+                (year == null || r.year?.toString() == year) &&
                 (words.isEmpty() || normalize(r.title).let { n -> words.all { it in n } })
         }
         val st = d.status[kind.service]
