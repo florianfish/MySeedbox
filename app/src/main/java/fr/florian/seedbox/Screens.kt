@@ -192,9 +192,7 @@ private fun TorrentCard(t: Torrent, onClick: () -> Unit, onToggle: () -> Unit, o
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
-                        if (t.category.isNotBlank()) {
-                            Pill(t.category, MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
+                        if (t.category.isNotBlank()) OutlinedPill(t.category)
                     }
                 }
                 IconButton(onClick = onToggle) {
@@ -246,7 +244,7 @@ fun QueueScreen(configs: Map<Service, ServiceConfig>, onOpenSettings: () -> Unit
             Empty(
                 "Rien en cours de téléchargement ou d'import",
                 AppIcons.Inbox,
-                "Les films et séries demandés dans Jellyseerr apparaissent ici pendant leur téléchargement.",
+                "Les films et séries demandés apparaissent ici pendant leur téléchargement et leur import.",
             )
         }
         items(merged) { QueueCard(it) }

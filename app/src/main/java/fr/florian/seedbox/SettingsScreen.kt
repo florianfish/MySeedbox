@@ -33,6 +33,7 @@ import java.io.IOException
 fun SettingsScreen(
     configs: Map<Service, ServiceConfig>,
     lock: AppLock,
+    appearance: Appearance,
     onSave: (Service, ServiceConfig) -> Unit,
     onImport: (Map<Service, ServiceConfig>) -> Unit,
 ) {
@@ -40,9 +41,11 @@ fun SettingsScreen(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
+        SectionTitle("Services")
         Text(
-            "Mêmes adresses que dans Jellyseerr (avec le port et l'éventuelle URL de base). " +
+            "Adresse complète avec le port et l'éventuelle URL de base. " +
                 "Clés API et mot de passe sont chiffrés sur le téléphone.",
+            Modifier.padding(horizontal = 4.dp),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -50,6 +53,9 @@ fun SettingsScreen(
             // key : l'état mémorisé (replié / déplié) reste attaché à son service
             key(s) { ServiceForm(s, configs[s] ?: ServiceConfig(), onSave) }
         }
+        SectionTitle("Apparence")
+        AppearanceSection(appearance)
+        SectionTitle("Sécurité et sauvegarde")
         LockSection(lock)
         BackupSection(configs, onImport)
         Text(
@@ -60,6 +66,17 @@ fun SettingsScreen(
             textAlign = TextAlign.Center,
         )
     }
+}
+
+/** Titre de groupe de réglages */
+@Composable
+private fun SectionTitle(text: String) {
+    Text(
+        text,
+        Modifier.padding(start = 4.dp, top = 8.dp),
+        style = MaterialTheme.typography.titleSmall,
+        color = MaterialTheme.colorScheme.primary,
+    )
 }
 
 /** Partie hôte de l'adresse, pour le résumé d'un service replié */

@@ -1,14 +1,13 @@
 package fr.florian.seedbox
 
 import android.widget.Toast
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
@@ -168,20 +167,41 @@ private fun Header(
             style = MaterialTheme.typography.bodySmall,
             color = if (t.errored) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            AssistChip(
-                onClick = onToggle,
-                label = { Text(if (t.paused) "Reprendre" else "Pause") },
-                leadingIcon = { Icon(if (t.paused) Icons.Filled.PlayArrow else AppIcons.Pause, null, Modifier.size(18.dp)) },
-            )
-            AssistChip(onClick = onRecheck, label = { Text("Vérifier") }, leadingIcon = { Icon(Icons.Filled.Refresh, null, Modifier.size(18.dp)) })
-            AssistChip(onClick = onReannounce, label = { Text("Réannoncer") })
-            AssistChip(onClick = onMove, label = { Text("Déplacer") }, leadingIcon = { Icon(AppIcons.Folder, null, Modifier.size(18.dp)) })
-            AssistChip(
-                onClick = onDelete,
-                label = { Text("Supprimer") },
-                leadingIcon = { Icon(Icons.Filled.Delete, null, Modifier.size(18.dp)) },
-            )
+        // Action principale en bouton, les autres dans un menu : plus rien ne déborde de l'écran
+        var menu by remember { mutableStateOf(false) }
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FilledTonalButton(onClick = onToggle, contentPadding = ButtonDefaults.ButtonWithIconContentPadding) {
+                Icon(if (t.paused) Icons.Filled.PlayArrow else AppIcons.Pause, null, Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(if (t.paused) "Reprendre" else "Pause")
+            }
+            OutlinedButton(onClick = onMove, contentPadding = ButtonDefaults.ButtonWithIconContentPadding) {
+                Icon(AppIcons.Folder, null, Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("Déplacer")
+            }
+            Spacer(Modifier.weight(1f))
+            Box {
+                IconButton(onClick = { menu = true }) { Icon(Icons.Filled.MoreVert, "Autres actions") }
+                DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                    DropdownMenuItem(
+                        text = { Text("Vérifier les données") },
+                        leadingIcon = { Icon(Icons.Filled.Refresh, null) },
+                        onClick = { menu = false; onRecheck() },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Réannoncer aux trackers") },
+                        leadingIcon = { Icon(AppIcons.Campaign, null) },
+                        onClick = { menu = false; onReannounce() },
+                    )
+                    HorizontalDivider()
+                    DropdownMenuItem(
+                        text = { Text("Supprimer…", color = MaterialTheme.colorScheme.error) },
+                        leadingIcon = { Icon(Icons.Filled.Delete, null, tint = MaterialTheme.colorScheme.error) },
+                        onClick = { menu = false; onDelete() },
+                    )
+                }
+            }
         }
     }
 }
@@ -218,11 +238,17 @@ private fun LazyListScope.infos(d: Detail) {
     item {
         Card(Modifier.fillMaxWidth()) {
             SelectionContainer {
-                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                // Libellé à gauche, valeur à droite : deux fois moins haut qu'en pile
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     rows.forEach { (label, value) ->
-                        Column {
-                            Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Text(value, style = MaterialTheme.typography.bodyMedium)
+                        Row {
+                            Text(
+                                label,
+                                Modifier.width(128.dp),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Text(value, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
                         }
                     }
                 }
