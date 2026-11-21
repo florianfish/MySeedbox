@@ -20,7 +20,7 @@ import kotlinx.coroutines.withContext
 import java.util.Locale
 
 private enum class ProwlarrTab(val label: String) {
-    INDEXERS("Indexeurs"), STATS("Statistiques"), HISTORY("Historique"), APPS("Applications"),
+    INDEXERS("Indexeurs"), STATS("Statistiques"), HISTORY("Historique"), APPS("Applications"), LOGS("Journaux"),
 }
 
 /** Écran Prowlarr, ouvert depuis sa carte dans l'onglet État */
@@ -28,6 +28,7 @@ private enum class ProwlarrTab(val label: String) {
 fun ProwlarrScreen(cfg: ServiceConfig, onOpenSettings: () -> Unit) {
     if (!cfg.configured) return NotConfigured("Prowlarr", onOpenSettings)
     val client = remember(cfg) { Prowlarr(cfg) }
+    val arr = remember(cfg) { Arr(Service.PROWLARR, cfg) }
     var tab by rememberSaveable { mutableStateOf(ProwlarrTab.INDEXERS) }
     Column(Modifier.fillMaxSize()) {
         PrimaryScrollableTabRow(selectedTabIndex = tab.ordinal, edgePadding = 12.dp) {
@@ -41,6 +42,7 @@ fun ProwlarrScreen(cfg: ServiceConfig, onOpenSettings: () -> Unit) {
                 ProwlarrTab.STATS -> StatsTab(client)
                 ProwlarrTab.HISTORY -> HistoryTab(client)
                 ProwlarrTab.APPS -> AppsTab(client)
+                ProwlarrTab.LOGS -> LogsList(arr)
             }
         }
     }

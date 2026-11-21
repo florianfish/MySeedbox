@@ -117,16 +117,18 @@ private fun App(settings: Settings, lock: AppLock, appearance: Appearance, incom
     var showAdd by rememberSaveable { mutableStateOf(false) }
     var detailHash by rememberSaveable { mutableStateOf<String?>(null) }
     var showProwlarr by rememberSaveable { mutableStateOf(false) }
+    var logsService by rememberSaveable { mutableStateOf<Service?>(null) }
     val openSettings = { showAdd = false; showSettings = true }
     // Un torrent arrive d'une autre appli : écran d'ajout
     LaunchedEffect(incoming) { if (incoming != null) { showSettings = false; showAdd = true } }
     val closeAdd = { showAdd = false; onIncomingHandled() }
-    val main = !showSettings && !showAdd && detailHash == null && !showProwlarr
+    val main = !showSettings && !showAdd && detailHash == null && !showProwlarr && logsService == null
 
     BackHandler(enabled = showSettings) { showSettings = false }
     BackHandler(enabled = showAdd) { closeAdd() }
     BackHandler(enabled = detailHash != null && !showAdd && !showSettings) { detailHash = null }
     BackHandler(enabled = showProwlarr && !showAdd && !showSettings) { showProwlarr = false }
+    BackHandler(enabled = logsService != null && !showAdd && !showSettings) { logsService = null }
 
     Scaffold(
         topBar = {
@@ -139,6 +141,7 @@ private fun App(settings: Settings, lock: AppLock, appearance: Appearance, incom
                             showAdd -> "Ajouter un torrent"
                             detailHash != null -> "Torrent"
                             showProwlarr -> "Prowlarr"
+                            logsService != null -> "Journaux ${logsService!!.label}"
                             else -> tab.label
                         }
                     )
@@ -149,6 +152,7 @@ private fun App(settings: Settings, lock: AppLock, appearance: Appearance, incom
                             showAdd -> closeAdd()
                             showSettings -> showSettings = false
                             showProwlarr -> showProwlarr = false
+                            logsService != null -> logsService = null
                             else -> detailHash = null
                         }
                     }) {
@@ -202,6 +206,9 @@ private fun App(settings: Settings, lock: AppLock, appearance: Appearance, incom
                 )
             } else if (showProwlarr) {
                 ProwlarrScreen(configs.getValue(Service.PROWLARR), openSettings)
+            } else if (logsService != null) {
+                val s = logsService!!
+                LogsScreen(s, configs.getValue(s), openSettings)
             } else if (detailHash != null) {
                 TorrentDetailScreen(configs.getValue(Service.QBIT), detailHash!!, onClose = { detailHash = null })
             } else when (tab) {
@@ -209,7 +216,7 @@ private fun App(settings: Settings, lock: AppLock, appearance: Appearance, incom
                 Tab.QUEUE -> QueueScreen(configs, openSettings)
                 Tab.RECENT -> RecentScreen(configs, openSettings)
                 Tab.CALENDAR -> CalendarScreen(configs, openSettings)
-                Tab.STATUS -> StatusScreen(configs, openSettings, onOpenProwlarr = { showProwlarr = true })
+                Tab.STATUS -> StatusScreen(configs, openSettings, onOpen = { if (it == Service.PROWLARR) showProwlarr = true else logsService = it })
             }
         }
     }
