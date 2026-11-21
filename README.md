@@ -19,6 +19,18 @@ Les demandes de films et séries restent dans un outil dédié comme Jellyseerr 
 
 Chaque service est facultatif : seuls les onglets des services configurés affichent des données, et un service en panne n'empêche pas les autres de s'afficher. Tirer vers le bas pour actualiser un écran.
 
+## Captures
+
+Titres, pochettes, noms de release et adresses sont floutés.
+
+| Torrents | Fiche d'un torrent | Calendrier |
+|:---:|:---:|:---:|
+| <img src="docs/screenshots/torrents.png" width="250" alt="Liste des torrents"> | <img src="docs/screenshots/torrent-detail.png" width="250" alt="Fiche d'un torrent"> | <img src="docs/screenshots/calendrier.png" width="250" alt="Calendrier des sorties"> |
+| **Récents : films** | **Récents : séries** | **Récents : fiche** |
+| <img src="docs/screenshots/recents-films.png" width="250" alt="Films récemment importés"> | <img src="docs/screenshots/recents-series.png" width="250" alt="Séries récemment importées"> | <img src="docs/screenshots/recents-fiche.png" width="250" alt="Fiche détaillée d'une série"> |
+| **État** | **Réglages** | **Verrouillage** |
+| <img src="docs/screenshots/etat.png" width="250" alt="État des services et des disques"> | <img src="docs/screenshots/reglages.png" width="250" alt="Réglages des services"> | <img src="docs/screenshots/verrouillage.png" width="250" alt="Écran de verrouillage"> |
+
 ## Prérequis
 
 - qBittorrent avec la WebUI activée (v4 ou v5 ; le choix du dossier de destination demande la v5).
